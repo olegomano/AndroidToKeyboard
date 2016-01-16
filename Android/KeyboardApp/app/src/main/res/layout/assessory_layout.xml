@@ -17,4 +17,12 @@
         android:text="NONE"
         android:id="@+id/accessory_name"
         android:layout_gravity="center_horizontal" />
+
+    <TextView
+        android:layout_width="367dp"
+        android:layout_height="match_parent"
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:text="Large Text"
+        android:id="@+id/fromAccessory" />
+
 </LinearLayout>
