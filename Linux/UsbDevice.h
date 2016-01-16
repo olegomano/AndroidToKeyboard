@@ -19,11 +19,12 @@ struct UsbDevice{
 };
 typedef struct UsbDevice UsbDevice;
 
+void loadAndroidVPIDList(FILE* f);
+void printDevice(UsbDevice* dev);
 void listDevices(libusb_context* cntx);
-UsbDevice findAndroidDevice(libusb_context* cntx);
-int setToAccessoryMode(UsbDevice* device);
-UsbDevice connectToAccessory(libusb_context* cntx);
-int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device);
+int  connectToAndroidDevice(libusb_context* cntx, UsbDevice* device);
 void freeDevice(UsbDevice* device);
+int  writeToDevice(UsbDevice* device, void* data, uint length);
+int  deviceEventListener(UsbDevice* dev, void* function );
 
 #endif

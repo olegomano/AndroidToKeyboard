@@ -19,6 +19,10 @@ const char* version = "v.10";
 const char* uri = "www.dankmaymays.com";
 const char* serialnumber = "0";
 
+UsbDevice findAndroidDevice(libusb_context* cntx);
+int setToAccessoryMode(UsbDevice* device);
+UsbDevice connectToAccessory(libusb_context* cntx);
+
 /*
 	Function does all the work
 	1. Searches through all usb devices for a device whose PID and VID are in the VID/PID arrays
@@ -27,6 +31,7 @@ const char* serialnumber = "0";
 	4. Frees the old
 	5. Looks for a device whose VID and PID match the ones specified by google for an android phone in accessory mode
 	6. Opens the device and takes contorl of the Interface
+	7. Device is now ready for I/O
 */
 int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 	UsbDevice android_device = findAndroidDevice(cntx);
@@ -36,11 +41,11 @@ int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 	}
 	libusb_open(android_device.device, &(android_device.device_handle) );
 	setToAccessoryMode(&android_device);
-	listDevices(cntx);
 	freeDevice(&android_device);
-
+	listDevices(cntx);
+	
 	*device = connectToAccessory(cntx);
-	if(!android_device.is_valid){
+	if(!device->is_valid){
 		printf("Failed to connect to accesssory\n");
 		return 1;
 	}
@@ -49,7 +54,10 @@ int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 };
 
 
-
+/*
+	Looks through Every attatched device, and finds the one that has the a VID and PID that is presend in the VID and PID arrays
+	References the device is finds
+*/
 UsbDevice findAndroidDevice(libusb_context* cntx){ //finds and references the device
 	UsbDevice ret_device;
 	ret_device.is_valid = 0;
@@ -77,7 +85,7 @@ UsbDevice findAndroidDevice(libusb_context* cntx){ //finds and references the de
 				printf("Found Device \n");
 				return ret_device;
 			}
-			vid_pid++;
+			++vid_pid;
 		}
 		++count;
 	}
@@ -108,9 +116,10 @@ void listDevices(libusb_context* cntx){
 int setToAccessoryMode(UsbDevice* device){
 	printf("Setting device to accessory mode\n");
 	int response;
+	/*
 	unsigned char ioBuffer[2];
 	int devVersion;
-
+	
 	response = libusb_control_transfer(
 		device->device_handle, //handle
 		0xC0, //bmRequestType
@@ -121,32 +130,48 @@ int setToAccessoryMode(UsbDevice* device){
 		2, //wLength
         0 //timeout
 	);
-
+	
 	if(response < 0){error(response);return-1;}
 	devVersion = ioBuffer[1] << 8 | ioBuffer[0];
 	fprintf(stdout,"Verion Code Device: %d\n", devVersion);
-	usleep(1000); //sample I looked at had this, purpose: unknown
+	*/
+	//usleep(1000); //sample I looked at had this, purpose: unknown
 
 	response = libusb_control_transfer(device->device_handle,0x40,52,0,0,(unsigned char*)manufacturer,strlen(manufacturer),0);
 	if(response < 0){error(response);return 1;}
 
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,1,(unsigned char*)manufacturer,strlen(manufacturer),0);
+	response = libusb_control_transfer(device->device_handle,0x40,52,0,1,(unsigned char*)modelName,strlen(modelName),0);
 	if(response < 0){error(response);return 1;}
 
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,2,(unsigned char*)manufacturer,strlen(manufacturer),0);
+	response = libusb_control_transfer(device->device_handle,0x40,52,0,2,(unsigned char*)protocol,strlen(protocol),0);
 	if(response < 0){error(response);return 1;}
 
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,3,(unsigned char*)manufacturer,strlen(manufacturer),0);
+	response = libusb_control_transfer(device->device_handle,0x40,52,0,3,(unsigned char*)version,strlen(version),0);
 	if(response < 0){error(response);return 1;}
 
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,4,(unsigned char*)manufacturer,strlen(manufacturer),0);
+	response = libusb_control_transfer(device->device_handle,0x40,52,0,4,(unsigned char*)uri,strlen(uri),0);
 	if(response < 0){error(response);return 1;}
 
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,5,(unsigned char*)manufacturer,strlen(manufacturer),0);
+	response = libusb_control_transfer(device->device_handle,0x40,52,0,5,(unsigned char*)serialnumber,strlen(serialnumber),0);
 	if(response < 0){error(response);return 1;}	
 
 	response = libusb_control_transfer(device->device_handle,0x40,53,0,0,NULL,0,0);
 	if(response < 0){error(response);return 1;}
+	/*
+	u_char from_usb[1024];
+	response = libusb_control_transfer(
+		device->device_handle, //handle
+		0xC0, //bmRequestType
+		51, //bRequest
+		0, //wValue
+		0, //wIndex
+		from_usb, //data
+		2, //wLength
+        1500000 //timeout
+	);
+	from_usb[1023] = 0;
+	printf(from_usb);
+	*/
 
 	usleep(1500000); //wait for device to enter accesssory mode
 	return 0;
@@ -184,11 +209,27 @@ UsbDevice connectToAccessory(libusb_context* cntx){
 
 }
 
+void printDevice(UsbDevice* dev){
+	struct libusb_device_descriptor desc;    
+    struct libusb_endpoint_descriptor *epdesc;    
+    struct libusb_interface_descriptor *intdesc;    
+
+    libusb_get_device_descriptor(dev->device, &desc);
+    
+};
+
 void freeDevice(UsbDevice* device){
 	printf("Freeing device\n");
-	libusb_release_interface(device->device_handle,device->interface);
-	libusb_close(device->device_handle);
+	if(!device->is_valid){
+		return;
+	}
+	if(device->is_open){
+		printf("	Device was open, Closing\n");
+		libusb_close(device->device_handle);
+		libusb_release_interface(device->device_handle,device->interface);	
+	}
 	libusb_unref_device(device->device);
+	device->is_valid = 0;
 };
 
 
