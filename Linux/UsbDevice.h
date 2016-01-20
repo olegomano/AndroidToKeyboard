@@ -6,6 +6,9 @@
 #include <libusb-1.0/libusb.h>
 
 
+#define IN 0x81
+#define OUT 0x02
+
 struct UsbDevice{
 	int is_valid;
 	int is_open;
@@ -19,12 +22,23 @@ struct UsbDevice{
 };
 typedef struct UsbDevice UsbDevice;
 
+struct UsbDeviceReadListener{
+	UsbDevice* dev;
+	void (*listener)(u_char* data, int length);
+};
+typedef struct UsbDeviceReadListener UsbDeviceReadListener;
+
 void loadAndroidVPIDList(FILE* f);
+
 void printDevice(UsbDevice* dev);
 void listDevices(libusb_context* cntx);
+
 int  connectToAndroidDevice(libusb_context* cntx, UsbDevice* device);
 void freeDevice(UsbDevice* device);
-int  writeToDevice(UsbDevice* device, void* data, uint length);
-int  deviceEventListener(UsbDevice* dev, void* function );
+
+int  sendData(UsbDevice* device, void* data, int length);
+void sendDataAsync(UsbDevice* device, void* data, int length);
+
+pthread_t startListening(UsbDeviceReadListener* listener);
 
 #endif

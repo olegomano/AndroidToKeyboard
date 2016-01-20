@@ -53,6 +53,38 @@ int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 
 };
 
+/*
+	Synchronously sends data to the android device
+*/
+int  sendData(UsbDevice* device, void* data, int length){
+	/*
+	int libusb_bulk_transfer 	( 	
+		struct libusb_device_handle *  	dev_handle,
+		unsigned char  	endpoint,
+		unsigned char *  	data,
+		int  	length,
+		int *  	transferred,
+		unsigned int  	timeout 
+	) 
+	*/
+	int result;
+	int transferred_bytes;
+	result = libusb_bulk_transfer(device->device_handle,OUT,(unsigned char*)data,length,&transferred_bytes,1500);
+	switch(result){
+	    case 0: 
+	    	printf("Successfully transfered %d bytes \n", transferred_bytes); break; 
+    	case LIBUSB_ERROR_TIMEOUT: 
+    		printf("ERROR: transfer timed out \n"); break; 
+    	case LIBUSB_ERROR_PIPE: 
+    		printf("ERROR: endpoint halted \n"); break;
+    	case LIBUSB_ERROR_OVERFLOW: 
+    		printf("ERROR: overflow \n"); break;
+    	case LIBUSB_ERROR_NO_DEVICE: 
+    		printf("ERROR: decice disconnected \n"); break; 
+	}	
+	return result;
+}
+
 
 /*
 	Looks through Every attatched device, and finds the one that has the a VID and PID that is presend in the VID and PID arrays
@@ -116,26 +148,6 @@ void listDevices(libusb_context* cntx){
 int setToAccessoryMode(UsbDevice* device){
 	printf("Setting device to accessory mode\n");
 	int response;
-	/*
-	unsigned char ioBuffer[2];
-	int devVersion;
-	
-	response = libusb_control_transfer(
-		device->device_handle, //handle
-		0xC0, //bmRequestType
-		51, //bRequest
-		0, //wValue
-		0, //wIndex
-		ioBuffer, //data
-		2, //wLength
-        0 //timeout
-	);
-	
-	if(response < 0){error(response);return-1;}
-	devVersion = ioBuffer[1] << 8 | ioBuffer[0];
-	fprintf(stdout,"Verion Code Device: %d\n", devVersion);
-	*/
-	//usleep(1000); //sample I looked at had this, purpose: unknown
 
 	response = libusb_control_transfer(device->device_handle,0x40,52,0,0,(unsigned char*)manufacturer,strlen(manufacturer),0);
 	if(response < 0){error(response);return 1;}
@@ -157,21 +169,6 @@ int setToAccessoryMode(UsbDevice* device){
 
 	response = libusb_control_transfer(device->device_handle,0x40,53,0,0,NULL,0,0);
 	if(response < 0){error(response);return 1;}
-	/*
-	u_char from_usb[1024];
-	response = libusb_control_transfer(
-		device->device_handle, //handle
-		0xC0, //bmRequestType
-		51, //bRequest
-		0, //wValue
-		0, //wIndex
-		from_usb, //data
-		2, //wLength
-        1500000 //timeout
-	);
-	from_usb[1023] = 0;
-	printf(from_usb);
-	*/
 
 	usleep(1500000); //wait for device to enter accesssory mode
 	return 0;
@@ -210,12 +207,9 @@ UsbDevice connectToAccessory(libusb_context* cntx){
 }
 
 void printDevice(UsbDevice* dev){
-	struct libusb_device_descriptor desc;    
     struct libusb_endpoint_descriptor *epdesc;    
     struct libusb_interface_descriptor *intdesc;    
-
-    libusb_get_device_descriptor(dev->device, &desc);
-    
+	    
 };
 
 void freeDevice(UsbDevice* device){
@@ -231,6 +225,41 @@ void freeDevice(UsbDevice* device){
 	libusb_unref_device(device->device);
 	device->is_valid = 0;
 };
+
+
+static void* deviceReadThread(UsbDeviceReadListener* args){
+	UsbDevice* device = args->dev;
+	//void (*listener)(u_char* data, int length) = args->listener;
+	char* read_buffer[1024];
+	int result = 0;
+	int read_bytes;
+	printf("Opening Device Read Thread\n");
+	while(device->is_valid){
+		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,1024,&read_bytes,0);
+		switch(result){
+		    case 0: 
+		    	printf("Successfully read %d bytes \n", read_bytes); break; 
+    		case LIBUSB_ERROR_TIMEOUT: 
+    			printf("ERROR: read timed out \n"); break; 
+    		case LIBUSB_ERROR_PIPE: 
+    			printf("ERROR: endpoint halted \n"); break;
+    		case LIBUSB_ERROR_OVERFLOW: 
+    			printf("ERROR: overflow \n"); break;
+    		case LIBUSB_ERROR_NO_DEVICE: 
+    			printf("ERROR: decice disconnected \n"); break; 
+		}
+		if(!result){
+			(*args->listener)(read_buffer,read_bytes);
+		}
+	}
+	printf("Closing Device Read Thread\n");
+}
+
+pthread_t startListening(UsbDeviceReadListener* listener){
+	pthread_t thread;
+	pthread_create(&thread, NULL, deviceReadThread, listener);
+	return thread;
+}
 
 
 
