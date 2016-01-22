@@ -29,7 +29,7 @@ public class DebugView implements Runnable{
     public DebugView(Context context){
         mainThreadHandler = new Handler(Looper.getMainLooper());
         rootView = View.inflate(context,R.layout.console_layout,null);
-        errorView = (ListView) rootView.findViewById(R.id.debug_msgs);
+     //   errorView = (ListView) rootView.findViewById(R.id.debug_msgs);
         outputConsole = (TextView) rootView.findViewById(R.id.console);
     }
 
@@ -38,7 +38,7 @@ public class DebugView implements Runnable{
     }
 
     public synchronized void printError(String error){
-        errorLog.push(error);
+ //       errorLog.push(error);
         mainThreadHandler.post(this);
     }
 

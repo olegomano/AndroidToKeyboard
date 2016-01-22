@@ -43,15 +43,44 @@ int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 	setToAccessoryMode(&android_device);
 	freeDevice(&android_device);
 	listDevices(cntx);
-	
+
 	*device = connectToAccessory(cntx);
 	if(!device->is_valid){
 		printf("Failed to connect to accesssory\n");
 		return 1;
 	}
 	return 0;
-
 };
+
+static void* deviceReadThread(UsbDeviceReadListener* args){
+	UsbDevice* device = args->dev;
+	//void (*listener)(u_char* data, int length) = args->listener;
+	char read_buffer[1024];
+	int result = 0;
+	int read_bytes;
+	printf("Opening Device Read Thread\n");
+	while(device->is_valid){
+		memset(read_buffer,0,1024);
+		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,1024,&read_bytes,0);
+		switch(result){
+		    case 0: 
+		    	printf("Successfully read %d bytes \n", read_bytes); break; 
+    		case LIBUSB_ERROR_TIMEOUT: 
+    			printf("ERROR: read timed out \n"); break; 
+    		case LIBUSB_ERROR_PIPE: 
+    			printf("ERROR: endpoint halted \n"); break;
+    		case LIBUSB_ERROR_OVERFLOW: 
+    			printf("ERROR: overflow \n"); break;
+    		case LIBUSB_ERROR_NO_DEVICE: 
+    			printf("ERROR: decice disconnected \n"); break; 
+		}
+		if(!result){
+			(*args->listener)(read_buffer,read_bytes);
+		}
+	}
+	printf("Closing Device Read Thread\n");
+}
+
 
 /*
 	Synchronously sends data to the android device
@@ -227,33 +256,6 @@ void freeDevice(UsbDevice* device){
 };
 
 
-static void* deviceReadThread(UsbDeviceReadListener* args){
-	UsbDevice* device = args->dev;
-	//void (*listener)(u_char* data, int length) = args->listener;
-	char* read_buffer[1024];
-	int result = 0;
-	int read_bytes;
-	printf("Opening Device Read Thread\n");
-	while(device->is_valid){
-		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,1024,&read_bytes,0);
-		switch(result){
-		    case 0: 
-		    	printf("Successfully read %d bytes \n", read_bytes); break; 
-    		case LIBUSB_ERROR_TIMEOUT: 
-    			printf("ERROR: read timed out \n"); break; 
-    		case LIBUSB_ERROR_PIPE: 
-    			printf("ERROR: endpoint halted \n"); break;
-    		case LIBUSB_ERROR_OVERFLOW: 
-    			printf("ERROR: overflow \n"); break;
-    		case LIBUSB_ERROR_NO_DEVICE: 
-    			printf("ERROR: decice disconnected \n"); break; 
-		}
-		if(!result){
-			(*args->listener)(read_buffer,read_bytes);
-		}
-	}
-	printf("Closing Device Read Thread\n");
-}
 
 pthread_t startListening(UsbDeviceReadListener* listener){
 	pthread_t thread;

@@ -28,6 +28,13 @@ struct UsbDeviceReadListener{
 };
 typedef struct UsbDeviceReadListener UsbDeviceReadListener;
 
+struct UsbDeviceStatusListener{
+	void (*onDeviceClosed)();
+	void (*onDeivceClosed)();
+	void (*onDataRecieved)(u_char* data, int length);
+};
+typedef struct UsbDeviceStatusListener UsbDeviceStatusListener;
+
 void loadAndroidVPIDList(FILE* f);
 
 void printDevice(UsbDevice* dev);

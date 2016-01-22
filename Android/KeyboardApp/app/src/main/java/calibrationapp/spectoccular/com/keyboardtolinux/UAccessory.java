@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.hardware.usb.UsbAccessory;
 import android.hardware.usb.UsbManager;
 import android.os.ParcelFileDescriptor;
+import android.util.Log;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -40,6 +41,7 @@ public class UAccessory {
         manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
         if(accessory == null) return false;
         ParcelFileDescriptor fd = manager.openAccessory(accessory);
+        if(fd == null) return false;
         inputStream = new FileInputStream(fd.getFileDescriptor());
         outputStream = new FileOutputStream(fd.getFileDescriptor());
         return true;
@@ -51,7 +53,7 @@ public class UAccessory {
     public void startIO(){
         isIO = true;
         new Thread(new ReadRunnable(),"Accessory Read Thread").start();
-        new Thread(new WriteRunnable(),"Accessory Write Threa").start();
+        new Thread(new WriteRunnable(),"Accessory Write Thread").start();
     }
 
     /**
@@ -70,10 +72,33 @@ public class UAccessory {
      * @param length length of data that needs to be sent
      */
     public synchronized void sendData(byte[] data, int length){
+        try {
+            String toSend = "";
+            for(int i = 0; i < data.length; i++){
+                toSend+=data[i];
+            }
+            String sentBytes = "";
+            byte[] stringBytes = toSend.getBytes();
+            for(int i = 0; i < stringBytes.length;i++){
+                sentBytes+=stringBytes[i]+",";
+            }
+            MainActivity.DEBUG_VIEW.printConsole(sentBytes);
+            Log.d("UAccessory", sentBytes);
+            Log.d("UAccessory",toSend);
+            if(outputStream!=null) {
+                outputStream.write(data);
+                outputStream.flush();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        /*
         switch (writeBuffer){
             case 0: dataBuffer1.add(data); break;
             case 1: dataBuffer2.add(data); break;
         }
+        */
+
     }
 
     private synchronized void swapBuffers(){
@@ -97,12 +122,12 @@ public class UAccessory {
             while (isIO){
                 try {
                     int readBytes = inputStream.read(readData);
-                    //MainActivity.DEBUG_VIEW.printConsole("Read " + readBytes);
+                    listener.onDataRead(readData);
                 } catch (IOException e) {
                     e.printStackTrace();
                     MainActivity.DEBUG_VIEW.printConsole(e.toString());
                 }
-                listener.onDataRead(readData);
+
             }
         }
     }
@@ -116,7 +141,11 @@ public class UAccessory {
                     case 0:
                         for(int i = 0; i < dataBuffer2.size(); i++){
                             try {
-                                outputStream.write(dataBuffer2.get(i));
+                                String sentbytes = "";
+                                for(int b = 0; b < dataBuffer2.get(i).length; b++){
+                                    sentbytes+=dataBuffer2.get(i)[b]+" ";
+                                }
+                                outputStream.write(sentbytes.getBytes());
                             } catch (IOException e) {
                                 e.printStackTrace();
                             }
