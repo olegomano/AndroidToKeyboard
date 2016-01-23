@@ -41,18 +41,21 @@ public class DebugView implements Runnable{
  //       errorLog.push(error);
         mainThreadHandler.post(this);
     }
-
+    private volatile boolean pendingPrint = false;
     public synchronized void printConsole(String console){
         consoleLog.push(console);
+        pendingPrint = true;
         mainThreadHandler.post(this);
 
     }
 
     @Override
     public synchronized void run() {
+        if(!pendingPrint) return;
         if(!consoleLog.empty()) {
             outputConsole.setText(consoleLog.pop());
         }
         consoleLog.clear();
+        pendingPrint = false;
     }
 }

@@ -1,33 +1,20 @@
 package calibrationapp.spectoccular.com.keyboardtolinux;
 
-import android.annotation.TargetApi;
-import android.hardware.usb.UsbAccessory;
-import android.hardware.usb.UsbManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.inputmethodservice.Keyboard;
 import android.inputmethodservice.KeyboardView;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelFileDescriptor;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
-import java.io.BufferedOutputStream;
-import java.io.EOFException;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.IntBuffer;
 
 
-public class MainActivity extends AppCompatActivity implements UAccessory.DataReadListener, KeyboardView.OnKeyboardActionListener {
+public class MainActivity extends AppCompatActivity implements UAccessory.UAccessoryStatusListener, KeyboardView.OnKeyboardActionListener {
     public static DebugView DEBUG_VIEW;
     private UAccessory usbAccessory;
     private KeyboardView kView;
@@ -50,6 +37,7 @@ public class MainActivity extends AppCompatActivity implements UAccessory.DataRe
         usbAccessory.setDataReadListener(this);
         usbAccessory.startIO();
         DEBUG_VIEW.printConsole("Start");
+
     }
 
 
@@ -66,6 +54,11 @@ public class MainActivity extends AppCompatActivity implements UAccessory.DataRe
     @Override
     public void onDataRead(byte[] data) {
         DEBUG_VIEW.printConsole(new String(data));
+
+    }
+
+    @Override
+    public void onIOStarted() {
 
     }
 

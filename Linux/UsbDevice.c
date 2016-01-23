@@ -55,13 +55,13 @@ int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 static void* deviceReadThread(UsbDeviceReadListener* args){
 	UsbDevice* device = args->dev;
 	//void (*listener)(u_char* data, int length) = args->listener;
-	char read_buffer[1024];
+	char* read_buffer = malloc(sizeof(char)*65536);
 	int result = 0;
 	int read_bytes;
 	printf("Opening Device Read Thread\n");
 	while(device->is_valid){
-		memset(read_buffer,0,1024);
-		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,1024,&read_bytes,0);
+		memset(read_buffer,0,65536);
+		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,65536,&read_bytes,0);
 		switch(result){
 		    case 0: 
 		    	printf("Successfully read %d bytes \n", read_bytes); break; 
@@ -78,6 +78,7 @@ static void* deviceReadThread(UsbDeviceReadListener* args){
 			(*args->listener)(read_buffer,read_bytes);
 		}
 	}
+	freeDevice(read_buffer);
 	printf("Closing Device Read Thread\n");
 }
 
@@ -246,13 +247,13 @@ void freeDevice(UsbDevice* device){
 	if(!device->is_valid){
 		return;
 	}
+	device->is_valid = 0;
 	if(device->is_open){
 		printf("	Device was open, Closing\n");
 		libusb_close(device->device_handle);
 		libusb_release_interface(device->device_handle,device->interface);	
 	}
 	libusb_unref_device(device->device);
-	device->is_valid = 0;
 };
 
 

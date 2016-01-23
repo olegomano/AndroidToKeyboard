@@ -10,7 +10,7 @@
 #define OUT 0x02
 
 struct UsbDevice{
-	int is_valid;
+	volatile int is_valid;
 	int is_open;
 	int is_accessory;
 	int interface;
@@ -30,7 +30,7 @@ typedef struct UsbDeviceReadListener UsbDeviceReadListener;
 
 struct UsbDeviceStatusListener{
 	void (*onDeviceClosed)();
-	void (*onDeivceClosed)();
+	void (*onDeivceOpened)();
 	void (*onDataRecieved)(u_char* data, int length);
 };
 typedef struct UsbDeviceStatusListener UsbDeviceStatusListener;
@@ -42,6 +42,8 @@ void listDevices(libusb_context* cntx);
 
 int  connectToAndroidDevice(libusb_context* cntx, UsbDevice* device);
 void freeDevice(UsbDevice* device);
+
+int openDevice(libusb_context* cntx, UsbDevice* device, UsbDeviceStatusListener* listener);
 
 int  sendData(UsbDevice* device, void* data, int length);
 void sendDataAsync(UsbDevice* device, void* data, int length);

@@ -5,32 +5,36 @@ import android.content.Intent;
 import android.hardware.usb.UsbAccessory;
 import android.hardware.usb.UsbManager;
 import android.os.ParcelFileDescriptor;
-import android.util.Log;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Stack;
 
 /**
  * Created by Oleg Tolstov on 8:46 PM, 1/19/16. KeyboardToLinux
  */
 public class UAccessory {
 
-    public interface DataReadListener{
+    public interface UAccessoryStatusListener {
         public void onDataRead(byte[] data);
+        public void onIOStarted();
     }
+
+    private final static int STATE_WAITING_FOR_HANDSHAKE = 0x0;
+    private final static int STATE_READY = 0x1;
 
     private volatile FileInputStream inputStream;
     private volatile FileOutputStream outputStream;
-    private volatile DataReadListener listener;
+    private volatile UAccessoryStatusListener listener;
+    private ParcelFileDescriptor pfd;
 
     private volatile boolean isIO = true;
 
     private UsbAccessory accessory;
     private UsbManager manager;
 
+    private boolean switchEndianess = false;
     private ArrayList<byte[]> dataBuffer1 = new ArrayList<>();
     private ArrayList<byte[]> dataBuffer2 = new ArrayList<>();
 
@@ -40,10 +44,10 @@ public class UAccessory {
         accessory = (UsbAccessory)intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
         manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
         if(accessory == null) return false;
-        ParcelFileDescriptor fd = manager.openAccessory(accessory);
-        if(fd == null) return false;
-        inputStream = new FileInputStream(fd.getFileDescriptor());
-        outputStream = new FileOutputStream(fd.getFileDescriptor());
+        pfd = manager.openAccessory(accessory);
+        if(pfd == null) return false;
+        inputStream = new FileInputStream(pfd.getFileDescriptor());
+        outputStream = new FileOutputStream(pfd.getFileDescriptor());
         return true;
     }
 
@@ -53,7 +57,7 @@ public class UAccessory {
     public void startIO(){
         isIO = true;
         new Thread(new ReadRunnable(),"Accessory Read Thread").start();
-        new Thread(new WriteRunnable(),"Accessory Write Thread").start();
+        //new Thread(new WriteRunnable(),"Accessory Write Thread").start();
     }
 
     /**
@@ -73,32 +77,14 @@ public class UAccessory {
      */
     public synchronized void sendData(byte[] data, int length){
         try {
-            String toSend = "";
-            for(int i = 0; i < data.length; i++){
-                toSend+=data[i];
-            }
-            String sentBytes = "";
-            byte[] stringBytes = toSend.getBytes();
-            for(int i = 0; i < stringBytes.length;i++){
-                sentBytes+=stringBytes[i]+",";
-            }
-            MainActivity.DEBUG_VIEW.printConsole(sentBytes);
-            Log.d("UAccessory", sentBytes);
-            Log.d("UAccessory",toSend);
             if(outputStream!=null) {
                 outputStream.write(data);
                 outputStream.flush();
             }
         } catch (IOException e) {
             e.printStackTrace();
+            MainActivity.DEBUG_VIEW.printConsole(e.toString());
         }
-        /*
-        switch (writeBuffer){
-            case 0: dataBuffer1.add(data); break;
-            case 1: dataBuffer2.add(data); break;
-        }
-        */
-
     }
 
     private synchronized void swapBuffers(){
@@ -110,7 +96,7 @@ public class UAccessory {
         }
     }
 
-    public void setDataReadListener(DataReadListener listener){
+    public void setDataReadListener(UAccessoryStatusListener listener){
         this.listener = listener;
     }
 
