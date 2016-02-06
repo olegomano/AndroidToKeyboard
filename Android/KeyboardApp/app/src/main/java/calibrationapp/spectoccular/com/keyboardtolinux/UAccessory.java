@@ -9,36 +9,33 @@ import android.os.ParcelFileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.logging.SimpleFormatter;
 
 /**
  * Created by Oleg Tolstov on 8:46 PM, 1/19/16. KeyboardToLinux
  */
 public class UAccessory {
-
     public interface UAccessoryStatusListener {
         public void onDataRead(byte[] data);
         public void onIOStarted();
+        public void onIOClosed();
     }
 
-    private final static int STATE_WAITING_FOR_HANDSHAKE = 0x0;
-    private final static int STATE_READY = 0x1;
-
+    private int packetSize = 256;
+    private boolean sameEndianess = false;
     private volatile FileInputStream inputStream;
     private volatile FileOutputStream outputStream;
     private volatile UAccessoryStatusListener listener;
     private ParcelFileDescriptor pfd;
+    private volatile boolean isOpen = false;
 
     private volatile boolean isIO = true;
 
     private UsbAccessory accessory;
     private UsbManager manager;
 
-    private boolean switchEndianess = false;
-    private ArrayList<byte[]> dataBuffer1 = new ArrayList<>();
-    private ArrayList<byte[]> dataBuffer2 = new ArrayList<>();
-
-    private int writeBuffer = 0;
 
     public boolean open(Context context, Intent intent){
         accessory = (UsbAccessory)intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
@@ -51,13 +48,17 @@ public class UAccessory {
         return true;
     }
 
+    public int getPacketSize(){
+        return packetSize;
+    }
+
     /**
      * Starts two IO threads, one for reading and one for writing
      */
-    public void startIO(){
+    public void startIO(int pSize){
         isIO = true;
+        packetSize = pSize;
         new Thread(new ReadRunnable(),"Accessory Read Thread").start();
-        //new Thread(new WriteRunnable(),"Accessory Write Thread").start();
     }
 
     /**
@@ -65,8 +66,39 @@ public class UAccessory {
      */
     public void endIO() throws IOException {
         isIO = false;
+        isOpen = false;
         if(inputStream!=null) inputStream.close();
         if(outputStream!=null) outputStream.close();
+        if(listener!=null) listener.onIOClosed();
+    }
+
+    public boolean isOpen(){
+        return isOpen;
+    }
+
+    private boolean handshake(){
+        byte[] buffer = new byte[32];
+        byte[] readBuffer = new byte[1024];
+        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+        byteBuffer.asIntBuffer().put(0,1);
+        byteBuffer.asIntBuffer().put(1, packetSize);
+        sendData(buffer, buffer.length);
+        try {
+            MainActivity.DEBUG_VIEW.printConsole("Waiting for Responce");
+            inputStream.read(readBuffer);
+        } catch (Exception e) {
+            e.printStackTrace();
+            MainActivity.DEBUG_VIEW.printConsole(e.toString());
+            return false;
+        }
+        int endianessCheck = ByteBuffer.wrap(readBuffer).asIntBuffer().get(0);
+        if(endianessCheck == 1){
+            sameEndianess = true;
+        }else{
+            sameEndianess = false;
+        }
+        MainActivity.DEBUG_VIEW.printConsole("Successfull handshake, Endianess is " + sameEndianess);
+        return true;
     }
 
     /**
@@ -87,14 +119,6 @@ public class UAccessory {
         }
     }
 
-    private synchronized void swapBuffers(){
-        writeBuffer++;
-        writeBuffer = writeBuffer%2;
-        switch (writeBuffer){
-            case 0: dataBuffer1.clear();break;
-            case 1: dataBuffer2.clear();break;
-        }
-    }
 
     public void setDataReadListener(UAccessoryStatusListener listener){
         this.listener = listener;
@@ -103,8 +127,15 @@ public class UAccessory {
     private class ReadRunnable implements Runnable{
         @Override
         public void run() {
-            byte[] readData = new byte[1024];
             MainActivity.DEBUG_VIEW.printConsole("Starting Read Thread");
+            if(!handshake()){
+                return;
+            };
+            if(listener!=null){
+                listener.onIOStarted();
+            }
+            isOpen = true;
+            byte[] readData = new byte[packetSize];
             while (isIO){
                 try {
                     int readBytes = inputStream.read(readData);
@@ -114,40 +145,6 @@ public class UAccessory {
                     MainActivity.DEBUG_VIEW.printConsole(e.toString());
                 }
 
-            }
-        }
-    }
-
-
-    private class WriteRunnable implements Runnable{
-        @Override
-        public void run(){
-            while (isIO){
-                switch (writeBuffer){
-                    case 0:
-                        for(int i = 0; i < dataBuffer2.size(); i++){
-                            try {
-                                String sentbytes = "";
-                                for(int b = 0; b < dataBuffer2.get(i).length; b++){
-                                    sentbytes+=dataBuffer2.get(i)[b]+" ";
-                                }
-                                outputStream.write(sentbytes.getBytes());
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        break;
-                    case 1:
-                        for(int i = 0; i < dataBuffer1.size(); i++){
-                            try {
-                                outputStream.write(dataBuffer1.get(i));
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        break;
-                }
-                swapBuffers();
             }
         }
     }

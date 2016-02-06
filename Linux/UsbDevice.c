@@ -22,16 +22,18 @@ const char* serialnumber = "0";
 UsbDevice findAndroidDevice(libusb_context* cntx);
 int setToAccessoryMode(UsbDevice* device);
 UsbDevice connectToAccessory(libusb_context* cntx);
+void doHandshake(UsbDevice* dev);
 
 /*
 	Function does all the work
 	1. Searches through all usb devices for a device whose PID and VID are in the VID/PID arrays
 	2. Opens the found Device.
 	3. Sends the contorl messages to the device to put it into accessory mode
-	4. Frees the old
+	4. Frees the old device  
 	5. Looks for a device whose VID and PID match the ones specified by google for an android phone in accessory mode
 	6. Opens the device and takes contorl of the Interface
-	7. Device is now ready for I/O
+	7. Does a handshake to determine endianess and packet size
+	8. Device is now ready for I/O
 */
 int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 	UsbDevice android_device = findAndroidDevice(cntx);
@@ -49,19 +51,24 @@ int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 		printf("Failed to connect to accesssory\n");
 		return 1;
 	}
+	doHandshake(device);
 	return 0;
 };
+
+/*
+	Assumes all data is read in the endianess of this device
+*/
 
 static void* deviceReadThread(UsbDeviceReadListener* args){
 	UsbDevice* device = args->dev;
 	//void (*listener)(u_char* data, int length) = args->listener;
-	char* read_buffer = malloc(sizeof(char)*65536);
+	char* read_buffer = malloc(sizeof(char)*device->packet_size);
 	int result = 0;
 	int read_bytes;
 	printf("Opening Device Read Thread\n");
 	while(device->is_valid){
-		memset(read_buffer,0,65536);
-		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,65536,&read_bytes,0);
+		memset(read_buffer,0,device->packet_size);
+		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,device->packet_size,&read_bytes,0);
 		switch(result){
 		    case 0: 
 		    	printf("Successfully read %d bytes \n", read_bytes); break; 
@@ -78,13 +85,64 @@ static void* deviceReadThread(UsbDeviceReadListener* args){
 			(*args->listener)(read_buffer,read_bytes);
 		}
 	}
+	free(read_buffer);
 	freeDevice(read_buffer);
 	printf("Closing Device Read Thread\n");
+}
+/*
+	Does the handshake with the device that figures out the endianess and packet size to user for the sesion
+	The device sends 32 bytes
+	First 4 are control bytes to be interpreted as as int to determine if the endianess is different
+	Second 4 bytes represet the size of the packet to be used from now on
+	We then reply with our own controll message so the device can know our endianess
+*/
+void doHandshake(UsbDevice* dev){
+	char buffer[32];
+	int read_bytes;
+	memset(buffer,0,32);
+	int error = libusb_bulk_transfer(dev->device_handle,IN,(unsigned char*)buffer,32,&read_bytes,5000);
+	printf("Handshake read %d bytes\n", read_bytes);
+	if(error){
+		printf("Failed Handshake\n");
+		return;
+	}
+	int* a_ints = (int*)buffer;
+
+	if(a_ints[0] == 1){ 
+		dev->endianess = SAME;
+		dev->packet_size = a_ints[1];
+		printf("Endianess is same, packet size is %d\n",dev->packet_size);
+	}else{
+		dev->endianess = OPPOSITE;
+		int converted_size;
+		char* size_as_char = (char*)(&converted_size);
+		size_as_char[0] = buffer[7];
+		size_as_char[1] = buffer[6];
+		size_as_char[2] = buffer[5];
+		size_as_char[3] = buffer[4];
+		dev->packet_size = converted_size;
+		printf("Endianess is opposite, packet size %d\n",converted_size);
+	}
+	a_ints[0] = 1;
+	
+	error = sendData(dev,buffer,32);
+	int retry_count = 0;
+	while(error && retry_count < 3){
+		printf("Retrying\n");
+		retry_count++;
+		error = sendData(dev,buffer,32);
+		if(retry_count == 3 && error){
+			return;
+		}
+	}
+	printf("Handshake success\n");
+	printDevice(dev);
 }
 
 
 /*
 	Synchronously sends data to the android device
+	Sends data in the endianess of the recieving device
 */
 int  sendData(UsbDevice* device, void* data, int length){
 	/*
@@ -237,9 +295,14 @@ UsbDevice connectToAccessory(libusb_context* cntx){
 }
 
 void printDevice(UsbDevice* dev){
-    struct libusb_endpoint_descriptor *epdesc;    
-    struct libusb_interface_descriptor *intdesc;    
-	    
+	printf("Device: \n");
+	printf("	Vendor id: %d\n",dev->vendor_id);
+	printf("	Product id: %d\n", dev->product_id);
+	printf("	Is Valid: %d\n",dev->is_valid);
+	printf("	Is Open: %d\n", dev->is_open);
+	printf("	State: %d\n",dev->state);
+	printf("	Packet size: %d\n",dev->packet_size);
+	printf("	Endianess: %d\n",dev->endianess);
 };
 
 void freeDevice(UsbDevice* device){

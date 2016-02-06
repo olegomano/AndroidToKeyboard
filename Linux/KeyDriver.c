@@ -5,8 +5,9 @@
 #include "Keyboard.h"
 #include "UsbDevice.h"
 
-void readListener(u_char* data, int lenth);
+UsbDeviceReadListener listner;
 
+void readListener(u_char* data, int lenth);
 int main(){
 	printf("Hello World\n");
 	libusb_context* cntx;
@@ -16,7 +17,6 @@ int main(){
 	UsbDevice android_device;
 	connectToAndroidDevice(cntx,&android_device); //we now have a handle on the device and full controll over the IO 
 	
-	UsbDeviceReadListener listner;
 	listner.dev = &android_device;
 	listner.listener = &readListener;
 
@@ -34,9 +34,8 @@ int main(){
 	char user_input[1024];
 	while(1){
 		memset(user_input,0,1024);
-		//scanf("%s",&user_input);
-		sendKeyDown('a');
-		//sendData(&android_device,user_input,1024);
+		scanf("%s",&user_input);
+		sendData(&android_device,user_input,android_device.packet_size);
 		usleep(15000);
 		if(user_input[0] == 'e' && user_input[1] == 'x' && user_input[2] == 'i' && user_input[3] == 't'){
 			break;
@@ -49,6 +48,18 @@ int main(){
 }
 
 void readListener(u_char* data, int lenth){
-	int read_int = *((int*)data);
-	printf("%x\n",read_int);
+	int key_press;
+	if(listner.dev->endianess == SAME){
+		key_press = *((int*)data);
+	}else{
+		u_char* as_chars = &key_press;
+		as_chars[0] = data[3];
+		as_chars[1] = data[2];
+		as_chars[2] = data[1];
+		as_chars[3] = data[0];
+	}
+	printf("Key Pressed %d\n",key_press);
+	sendKeyDown(key_press);
+	sendKeyUp(key_press);
+	printf("\n\n");
 }
