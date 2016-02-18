@@ -18,7 +18,7 @@
 #include "UsbDevice.h"
 
 static const int g_android_PID_VID_len = 1;
-static int g_android_PID_array[1] = {20923};
+static int g_android_PID_array[1] = {20923}; //VID and PID of my device, every device has its own VID/PID combo
 static int g_android_VID_array[1] = {4046};
 
 static int g_accessory_mode_VID[1] = {0x18d1};
@@ -36,10 +36,15 @@ const char* version = "v.10";
 const char* uri = "www.dankmaymays.com";
 const char* serialnumber = "0";
 
+int hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
+int accesssory_hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
 UsbDevice findAndroidDevice(libusb_context* cntx);
 int setToAccessoryMode(UsbDevice* device);
 UsbDevice connectToAccessory(libusb_context* cntx);
 void doHandshake(UsbDevice* dev);
+void usbDeviceReadThread(UsbDeviceStatusListener* device);
+
+UsbDeviceStatusListener* current_callback;
 
 /*
 	Function does all the work
@@ -72,21 +77,99 @@ int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
 	return 0;
 };
 
-/*
-	Assumes phone writes using its own endianess
-*/
 
-static void* deviceReadThread(UsbDeviceReadListener* args){
-	UsbDevice* device = args->dev;
-	//void (*listener)(u_char* data, int length) = args->listener;
-	char* read_buffer = malloc(sizeof(char)*device->packet_size);
-	int result = 0;
-	int read_bytes;
-	printf("Opening Device Read Thread\n");
-	while(device->is_valid){
-		memset(read_buffer,0,device->packet_size);
-		result = libusb_bulk_transfer(device->device_handle,IN,(unsigned char*)read_buffer,device->packet_size,&read_bytes,0);
-		switch(result){
+/**
+	1. Registers for Callbacks that fire when a device of specified VID and PID is connected
+	2. When Callback is fired registers for a second callback for deivec with VID and PID of an accessory mode device
+	3. Puts the android device into accessory mode
+	4. When callback for accessory mode device is fire it takes controll of the accessory mode device from the kernel
+	5. Does a handshake to determine session parameters
+**/
+int connectToAndroidDeviceHotplug(UsbDeviceStatusListener* callback,libusb_context* cntx,int vid, int pid){
+	printf("Registering for Device Callback VID: %d , PID: %d\n", vid,pid);
+	libusb_hotplug_callback_handle handle;
+	current_callback = callback;
+	callback->device.vendor_id = vid;
+	callback->device.product_id = pid;
+	int rc;
+	rc = libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED, 0, vid, pid,
+												LIBUSB_HOTPLUG_MATCH_ANY, hotplug_callback, NULL,
+												&handle);
+	if(rc != LIBUSB_SUCCESS){
+		printf("Failed Singing up for Hotplug events\n");
+		return 0;
+	}else{
+		printf("Signed up for HotplugEvent \n");
+	}
+	return 1;
+
+}
+
+pthread_t registerForDataRead(UsbDeviceStatusListener* listener){
+	pthread_t thread;
+	pthread_create(&thread, NULL, usbDeviceReadThread,listener);
+	return thread;	
+};
+
+/**
+	Callback that get called when a device is plugged in if we used the connectToAndroidDeviceHotplug
+	It then puts the device into accessory mode and disconnects from it, as well as regestering a callback for the
+	VID and PID of an Android Accessory.
+**/
+int hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data) {	
+	if (LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED == event) {
+		printf("Android device connected\n");
+		int rc;
+		
+		rc = libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED | LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, 0, 0x18d1, 0x2D01,
+												LIBUSB_HOTPLUG_MATCH_ANY, accesssory_hotplug_callback, NULL,
+												&(current_callback->device.hotplug_callback_handle) );
+		UsbDevice mDevice;
+		mDevice.device = dev;
+		printf("Device Handle %04x\n",mDevice.device_handle);
+		libusb_open(mDevice.device,&mDevice.device_handle);
+		if(setToAccessoryMode(&mDevice)){//returns true if error
+			current_callback->onLibUsbFail("Failed to set Accessory Mode",1);
+			return;
+		}
+		printf("Finished Setting to Accessory Mode\n");
+		freeDevice(&mDevice);
+		printf("Freed Device\n");
+		listDevices(ctx);
+	}else{
+		printf("Unhandled event %d\n", event);
+	}
+	return 1;
+}
+/**
+	Callback when a AndroidAcessory connects
+	Attempts to open the accessory and take controll of the interface from the kernel
+**/
+int accesssory_hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data) {	
+	if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED){
+		printf("Accessory is plugged in\n");
+		current_callback->device = connectToAccessory(ctx);
+		if(!current_callback->device.is_valid){
+			current_callback->onLibUsbFail("Failed To connect to accessory",15);
+			return;
+		}
+		doHandshake(&current_callback->device);
+		current_callback->onDeivceOpened();
+	}else if(event == LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT){
+		current_callback->onDeviceDisconnected();
+	}
+	return 0;
+}
+
+void usbDeviceReadThread(UsbDeviceStatusListener* device){
+	unsigned char* packet = malloc(sizeof(char)*device->device.packet_size);
+	device->device.is_read = 1;
+	int readResult;
+	int read_bytes;	
+	while(device->device.is_read){
+		memset(packet,0,device->device.packet_size*sizeof(char));
+		readResult = libusb_bulk_transfer(device->device.device_handle,IN,packet,device->device.packet_size,&read_bytes,0);
+		switch(readResult){
 		    case 0: 
 		    	printf("Successfully read %d bytes \n", read_bytes); break; 
     		case LIBUSB_ERROR_TIMEOUT: 
@@ -98,14 +181,13 @@ static void* deviceReadThread(UsbDeviceReadListener* args){
     		case LIBUSB_ERROR_NO_DEVICE: 
     			printf("ERROR: decice disconnected \n"); break; 
 		}
-		if(!result){
-			(*args->listener)(read_buffer,read_bytes);
+		if(!readResult){
+			device->onDataRecieved(&device->device,packet,read_bytes);
 		}
 	}
-	free(read_buffer);
-	freeDevice(read_buffer);
-	printf("Closing Device Read Thread\n");
-}
+	delete(packet);
+};
+
 /*
 	Does the handshake with the device that figures out the endianess and packet size to user for the sesion
 	The device sends 32 bytes
@@ -124,7 +206,6 @@ void doHandshake(UsbDevice* dev){
 		return;
 	}
 	int* a_ints = (int*)buffer;
-
 	if(a_ints[0] == 1){ 
 		dev->endianess = SAME;
 		dev->packet_size = a_ints[1];
@@ -252,8 +333,9 @@ void listDevices(libusb_context* cntx){
 */
 int setToAccessoryMode(UsbDevice* device){
 	printf("Setting device to accessory mode\n");
-	int response;
+	printf("Device Handle: %04x \n",device->device_handle);
 
+	int response;
 	response = libusb_control_transfer(device->device_handle,0x40,52,0,0,(unsigned char*)manufacturer,strlen(manufacturer),0);
 	if(response < 0){error(response);return 1;}
 
@@ -275,7 +357,6 @@ int setToAccessoryMode(UsbDevice* device){
 	response = libusb_control_transfer(device->device_handle,0x40,53,0,0,NULL,0,0);
 	if(response < 0){error(response);return 1;}
 
-	usleep(1500000); //wait for device to enter accesssory mode
 	return 0;
 };
 
@@ -328,6 +409,7 @@ void freeDevice(UsbDevice* device){
 		return;
 	}
 	device->is_valid = 0;
+	device->is_read = 0;
 	if(device->is_open){
 		printf("	Device was open, Closing\n");
 		libusb_close(device->device_handle);
@@ -335,16 +417,6 @@ void freeDevice(UsbDevice* device){
 	}
 	libusb_unref_device(device->device);
 };
-
-
-
-pthread_t startListening(UsbDeviceReadListener* listener){
-	pthread_t thread;
-	pthread_create(&thread, NULL, deviceReadThread, listener);
-	return thread;
-}
-
-
 
 static int claim_interface_error(int result){
 	switch(result){

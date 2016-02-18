@@ -20,65 +20,79 @@
 #include <libusb-1.0/libusb.h>
 #include "Keyboard.h"
 #include "UsbDevice.h"
+#include "Daemon.h"
 
 //incase of usb.h is missing do the following
 // sudo apt-get install libsubs-dev
 
-UsbDeviceReadListener listner;
+UsbDeviceStatusListener device;
+int alive =  1;
 
-void readListener(u_char* data, int lenth);
+void daemonMain(int pid){
+	DAEMON_FILE_PRINT("DAEMON STARTED  ", pid);
+	//mainOld();
+}
+
+void onDeviceConnected(){
+	printf("Connected to device\n");
+}; //when usb is physically plugged in
+
+void onDeviceDisconnected(){
+	printf("Device is disconnected\n");
+	device.device.is_read = 0;
+}; //when usb is physically disconnected
+
+void onDeviceClosed(){
+
+}; //when logical usb connection is closed
+
+void onDeivceOpened(){
+	registerForDataRead(&device);
+}; //when logical usb connection is establised 
+
+void onLibUsbFail(char* errmsg, int errcode){
+	printf("USB ERROR: %s, %d \n", errmsg,errcode);
+};
+
+void onDataRecieved(UsbDevice* dev,u_char* data, int length){
+	int* recieved_data = (int*)data;
+	printf("Key Pressed: %04x \n", *recieved_data);
+	char pressedKey;
+	if(dev->endianess == SAME){
+		pressedKey = data[0];
+	}else{
+		pressedKey = data[3];
+	}
+	keyPress(pressedKey);
+}; //when data is recieved
+
+void libusb_poll_thread(){
+	while(alive){
+		libusb_handle_events_completed(NULL, NULL);
+	}
+}
+
 int main(){
-	printf("Hello World\n");
 	libusb_context* cntx;
 	libusb_init(&cntx);
 	libusb_set_debug(cntx, 3); //set verbosity level to 3, as suggested in the documentation
-	
-	UsbDevice android_device;
-	connectToAndroidDevice(cntx,&android_device); //we now have a handle on the device and full controll over the IO 
-	
-	listner.dev = &android_device;
-	listner.listener = &readListener;
+	openUinput();
 
-	startListening(&listner);
-
-	int error;
-	const char* test_string = "Now, when I say that I am in the habit of going to sea whenever I begin to grow hazy about the eyes, and begin to be over conscious of my lungs, I do not mean to have it inferred that I ever go to sea as a passenger. For to go as a passenger you must needs have a purse, and a purse is but a rag unless you have something in it. ";
-	sendData(&android_device,test_string,strlen(test_string));
-
-	error = openUinput();
-	if(error){
-		printf("Error opening Uinput\n");
-	}
-
-	char user_input[1024];
+	device.onLibUsbFail = &onLibUsbFail;
+	device.onDataRecieved = &onDataRecieved;
+	device.onDeivceOpened = &onDeivceOpened;
+	device.onDeviceClosed = &onDeviceClosed;
+	device.onDeviceConnected = &onDeviceConnected;
+	device.onDeviceDisconnected = &onDeviceDisconnected;
+	connectToAndroidDeviceHotplug(&device,cntx,4046,20923);
+	int* zeroArr = malloc(128);// this is a dirty hack, I couldn't find the defenition struct timeval
+								// but by the defenition if it has all 0's it means its non blocking
+								//so i hope that the struct is less than 128 bytes in size, and set 128 bytes to 0
+	memset(zeroArr,0,128);
 	while(1){
-		memset(user_input,0,1024);
-		scanf("%s",&user_input);
-		sendData(&android_device,user_input,android_device.packet_size);
-		usleep(15000);
-		if(user_input[0] == 'e' && user_input[1] == 'x' && user_input[2] == 'i' && user_input[3] == 't'){
-			break;
-		}
+		libusb_handle_events_timeout(cntx,(struct timeval*)zeroArr);
 	}
-	closeUinput();
-	freeDevice(&android_device);
-	usleep(1000000);
+	delete(zeroArr);
+	alive = 0;
 	return 0;
-}
-
-void readListener(u_char* data, int lenth){
-	int key_press;
-	if(listner.dev->endianess == SAME){
-		key_press = *((int*)data);
-	}else{
-		u_char* as_chars = &key_press;
-		as_chars[0] = data[3];
-		as_chars[1] = data[2];
-		as_chars[2] = data[1];
-		as_chars[3] = data[0];
-	}
-	printf("Key Pressed %d\n",key_press);
-	sendKeyDown(key_press);
-	sendKeyUp(key_press);
-	printf("\n\n");
 }

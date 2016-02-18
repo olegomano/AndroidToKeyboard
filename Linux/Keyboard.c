@@ -18,7 +18,7 @@
 #include "Keyboard.h"
 
 static volatile int uinput_fd;
-
+int key_transaltion_table[256];
 
 int openUinput(){
 	uinput_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
@@ -35,6 +35,8 @@ int openUinput(){
 	int converted_keycode;
 	for(enabled_key = 0; enabled_key < 255; enabled_key++){
 		converted_keycode = getKeyCode(enabled_key);
+		key_transaltion_table[enabled_key] = converted_keycode;
+		printf("Key %d, LINUX_KEY: %d \n", enabled_key, key_transaltion_table[enabled_key]);
 		if(converted_keycode >= 0){
 			res = ioctl(uinput_fd, UI_SET_KEYBIT, converted_keycode);
 			printf("%d Enabling key %d\n", enabled_key, converted_keycode);
@@ -95,7 +97,7 @@ void shiftDown(){
 void sendKeyDown(char key){
 	struct input_event ev;
 	memset(&ev, 0, sizeof(ev));
-	int key_code = getKeyCode(key);
+	int key_code = key_transaltion_table[key];
 	if(key_code == 0) return;
 	if(key_code < 0){
 		shiftDown();
@@ -118,7 +120,7 @@ void sendKeyDown(char key){
 void sendKeyUp(char key){
 	struct input_event ev;
 	memset(&ev, 0, sizeof(ev));
-	int key_code = getKeyCode(key);
+	int key_code = key_transaltion_table[key];
 	ev.type = EV_KEY;
 	ev.code = key_code;
 	if(ev.code == 0) return;
@@ -139,6 +141,12 @@ void sendKeyUp(char key){
 	}
 	if(res < 0 )printf("Error sending Key UP\n");
 };
+
+void keyPress(char key){
+	sendKeyDown(key);
+	sendKeyUp(key);
+}
+
 
 int getKeyCode(unsigned char key){
 	int uinput_keycode;
