@@ -28,27 +28,25 @@
 UsbDeviceStatusListener device;
 int alive =  1;
 
-void daemonMain(int pid){
-	DAEMON_FILE_PRINT("DAEMON STARTED  ", pid);
-	//mainOld();
-}
 
-void onDeviceConnected(){
+
+void onDeviceConnected(){//when usb is physically plugged in
 	printf("Connected to device\n");
-}; //when usb is physically plugged in
+}; 
 
-void onDeviceDisconnected(){
+void onDeviceDisconnected(){//when usb is physically disconnected
 	printf("Device is disconnected\n");
-	device.device.is_read = 0;
-}; //when usb is physically disconnected
+};
 
-void onDeviceClosed(){
+void onDeviceClosed(){ //when logical usb connection is closed
 
-}; //when logical usb connection is closed
 
-void onDeivceOpened(){
-	registerForDataRead(&device);
-}; //when logical usb connection is establised 
+};
+
+void onDeivceOpened(){ //when logical usb connection is establised 
+	printf("Device Opened\n");
+	//registerForDataRead(&device);
+};
 
 void onLibUsbFail(char* errmsg, int errcode){
 	printf("USB ERROR: %s, %d \n", errmsg,errcode);
@@ -66,11 +64,11 @@ void onDataRecieved(UsbDevice* dev,u_char* data, int length){
 	keyPress(pressedKey);
 }; //when data is recieved
 
-void libusb_poll_thread(){
-	while(alive){
-		libusb_handle_events_completed(NULL, NULL);
-	}
+void daemonMain(int pid){
+	DAEMON_FILE_PRINT("DAEMON STARTED  ", pid);
 }
+
+
 
 int main(){
 	libusb_context* cntx;
@@ -85,14 +83,14 @@ int main(){
 	device.onDeviceConnected = &onDeviceConnected;
 	device.onDeviceDisconnected = &onDeviceDisconnected;
 	connectToAndroidDeviceHotplug(&device,cntx,4046,20923);
-	int* zeroArr = malloc(128);// this is a dirty hack, I couldn't find the defenition struct timeval
-								// but by the defenition if it has all 0's it means its non blocking
-								//so i hope that the struct is less than 128 bytes in size, and set 128 bytes to 0
-	memset(zeroArr,0,128);
+	int* zeroArr = malloc(1024); // this is a dirty hack, I couldn't find the defenition struct timeval
+								// but the documentation statues that all 0's means its non blocking
+								// so i hope that the struct is less than 1024 bytes in size, and set 1024 bytes to 0
+	memset(zeroArr,0,1024);
 	while(1){
-		libusb_handle_events_timeout(cntx,(struct timeval*)zeroArr);
+		libusb_handle_events(cntx);
 	}
-	delete(zeroArr);
+	free(zeroArr);
 	alive = 0;
 	return 0;
 }

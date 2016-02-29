@@ -1,6 +1,9 @@
 
 all: link
 
+debug: KeyDriver.o UsbDevice.o Keyboard.o Daemon.o
+	gcc KeyDriver.o UsbDevice.o Keyboard.o Daemon.o -o KeyboardDriver -lusb-1.0 -lpthread -g
+
 Daemon.o: Daemon.c
 	gcc -c Daemon.c -o Daemon.o
 

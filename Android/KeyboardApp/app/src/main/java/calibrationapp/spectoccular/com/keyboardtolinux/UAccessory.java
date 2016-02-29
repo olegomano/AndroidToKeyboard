@@ -16,89 +16,196 @@
 */
 package calibrationapp.spectoccular.com.keyboardtolinux;
 
+import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.hardware.usb.UsbAccessory;
 import android.hardware.usb.UsbManager;
 import android.os.ParcelFileDescriptor;
+import android.util.Log;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.logging.SimpleFormatter;
 
 /**
  * Created by Oleg Tolstov on 8:46 PM, 1/19/16. KeyboardToLinux
  */
-public class UAccessory {
+public class UAccessory extends BroadcastReceiver {
+    private static final int TYPE_CONF = 1;
+    private static final int TYPE_DATA = 2;
+    private static final int TYPE_CLS = 3;
+
     public interface UAccessoryStatusListener {
         public void onDataRead(byte[] data);
         public void onIOStarted();
         public void onIOClosed();
     }
 
+    private int headerSize = 4;
     private int packetSize = 256;
+
+    private volatile byte[] packetRead;
+    private volatile ByteBuffer packetReadBB;
+    private volatile byte[] packetWrite;
+    private volatile ByteBuffer packetWriteBB;
+
     private boolean sameEndianess = false;
     private volatile FileInputStream inputStream;
     private volatile FileOutputStream outputStream;
     private volatile UAccessoryStatusListener listener;
     private ParcelFileDescriptor pfd;
+
+    private volatile boolean hasPermission = false;
     private volatile boolean isOpen = false;
+    private volatile boolean isIO = false;
 
-    private volatile boolean isIO = true;
-
+    private PendingIntent mPermissionIntent;
+    private IntentFilter mIntentFilter;
     private UsbAccessory accessory;
     private UsbManager manager;
+    private Context context;
 
+    private static final String USB_ACTION = "usb_action_broadcast";
 
-    public boolean open(Context context, Intent intent){
-        accessory = (UsbAccessory)intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
+    public UAccessory(Context context){
+        this.context = context;
         manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
-        if(accessory == null) return false;
-        pfd = manager.openAccessory(accessory);
-        if(pfd == null) return false;
-        inputStream = new FileInputStream(pfd.getFileDescriptor());
-        outputStream = new FileOutputStream(pfd.getFileDescriptor());
-        return true;
+        mPermissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(USB_ACTION), 0);
+        mIntentFilter = new IntentFilter(USB_ACTION);
+        context.registerReceiver(this, mIntentFilter);
     }
+
+    public boolean requestPermission(){
+        if(manager.getAccessoryList()!=null) {
+            accessory = manager.getAccessoryList()[0]; //WE ONLY GOT 1 USB PORT
+            manager.requestPermission(accessory, mPermissionIntent);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean hasPermission(){
+        return hasPermission;
+    }
+
+    public void cleanUp(){
+        if(isIO){
+            try {
+                endIO();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        isOpen = false;
+        hasPermission = false;
+        try {
+            inputStream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            outputStream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            pfd.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        String action = intent.getAction();
+        MainActivity.DEBUG_VIEW.printConsole("Got intent: " + intent);
+        if(action.compareTo(USB_ACTION) == 0){
+            accessory = (UsbAccessory) intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
+            if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                if(accessory != null){
+                    hasPermission = true;
+                    Log.d("UAccessory", "permission gained for accessory " + accessory);
+                    MainActivity.DEBUG_VIEW.printConsole("Gained Permissions " + accessory);
+                    pfd = manager.openAccessory(accessory);
+                    if(pfd != null) {
+                        isOpen = true;
+                        inputStream = new FileInputStream(pfd.getFileDescriptor());
+                        outputStream = new FileOutputStream(pfd.getFileDescriptor());
+                        try {
+                            startIO();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                            MainActivity.DEBUG_VIEW.printConsole("Failed to Start IO: \n " + e.toString());
+                        }
+                    }else{
+                        MainActivity.DEBUG_VIEW.printConsole("PFD is null");
+                    }
+                }
+            }
+            else {
+                hasPermission = false;
+                MainActivity.DEBUG_VIEW.printConsole("Failed to gain Permissions " + accessory);
+            }
+
+        }
+    }
+
 
     public int getPacketSize(){
         return packetSize;
     }
 
-    /**
-     * Starts two IO threads, one for reading and one for writing
-     */
-    public void startIO(int pSize){
-        isIO = true;
-        packetSize = pSize;
-        new Thread(new ReadRunnable(),"Accessory Read Thread").start();
+    public void setPacketSize(int pSize){
+        if(!isIO){
+            return;
+        }
+        sendData(TYPE_CONF, null, 0);
     }
 
     /**
-     * Kills both IO threads
+     * Starts thread for reading data
      */
-    public void endIO() throws IOException {
-        isIO = false;
-        isOpen = false;
-        if(inputStream!=null) inputStream.close();
-        if(outputStream!=null) outputStream.close();
-        if(listener!=null) listener.onIOClosed();
+    public synchronized void startIO() throws IOException {
+        if(isIO) return;
+        isIO = true;
+        packetRead = new byte[packetSize + headerSize];
+        packetRead = new byte[packetSize + headerSize];
+        packetReadBB = ByteBuffer.wrap(packetRead);
+        packetWrite = new byte[packetSize + headerSize];
+        packetWriteBB = ByteBuffer.wrap(packetWrite);
+        if(!handshake())return;
+        //new Thread(new ReadRunnable(),"Accessory Read Thread").start();
     }
+
+    /**
+     * Kills read thread
+     */
+    public synchronized void endIO() throws IOException {
+        sendData(TYPE_CLS,null,0); //tells accessory that you are ending communications`
+        isIO = false;
+    }
+
 
     public boolean isOpen(){
         return isOpen;
     }
 
-    private boolean handshake(){
-        byte[] buffer = new byte[32];
+    private boolean handshake() throws IOException {
+        byte[] writeBuffer = new byte[32];
         byte[] readBuffer = new byte[1024];
-        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-        byteBuffer.asIntBuffer().put(0,1);
+        ByteBuffer byteBuffer = ByteBuffer.wrap(writeBuffer);
+        byteBuffer.asIntBuffer().put(0, 1);
         byteBuffer.asIntBuffer().put(1, packetSize);
-        sendData(buffer, buffer.length);
+        outputStream.write(writeBuffer);
+        outputStream.flush();
+
         try {
             MainActivity.DEBUG_VIEW.printConsole("Waiting for Responce");
             inputStream.read(readBuffer);
@@ -116,17 +223,26 @@ public class UAccessory {
         MainActivity.DEBUG_VIEW.printConsole("Successfull handshake, Endianess is " + sameEndianess);
         return true;
     }
-
     /**
      * Thread safe call
      * Puts the data into a que of pending data transfers
      * @param data data to be send
      * @param length length of data that needs to be sent
      */
+
     public synchronized void sendData(byte[] data, int length){
+        sendData(TYPE_DATA,data,length);
+    }
+
+
+    private void sendData(int type, byte[] data, int length){
         try {
             if(outputStream!=null) {
-                outputStream.write(data);
+                packetWriteBB.asIntBuffer().put(type);
+                if(data!=null){
+                    System.arraycopy(data,0,packetWrite,headerSize,data.length);
+                }
+                outputStream.write(packetWrite);
                 outputStream.flush();
             }
         } catch (IOException e) {
@@ -144,18 +260,15 @@ public class UAccessory {
         @Override
         public void run() {
             MainActivity.DEBUG_VIEW.printConsole("Starting Read Thread");
-            if(!handshake()){
-                return;
-            };
             if(listener!=null){
                 listener.onIOStarted();
             }
-            isOpen = true;
-            byte[] readData = new byte[packetSize];
             while (isIO){
                 try {
-                    int readBytes = inputStream.read(readData);
-                    listener.onDataRead(readData);
+                    if(inputStream.available() > 0) {
+                        int readBytes = inputStream.read(packetRead);
+                    }
+                    listener.onDataRead(packetRead);
                 } catch (IOException e) {
                     e.printStackTrace();
                     MainActivity.DEBUG_VIEW.printConsole(e.toString());

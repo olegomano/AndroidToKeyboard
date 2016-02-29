@@ -27,17 +27,21 @@
 #define OUT 0x02
 #define OPPOSITE 0
 #define SAME 1
+
+#define DISCONNECTED 0
 #define WAITING_FOR_HANDSHAKE 1
-#define READY 2
+#define WORKING 2
 
 struct UsbDevice{
-	volatile int is_read;
-	volatile int state; 
-	volatile int is_valid;
+	volatile int is_valid; //is this a valid device
+	volatile int is_open; //does we have controll over the interface
+	volatile int is_accessory; //are we an accessory
+	volatile int is_read; //are we currently reading 
+
+	volatile int status; //logical state of connection
 	volatile int packet_size;
 	volatile int endianess; //0 is opposite, 1 is same
-	int is_open;
-	int is_accessory;
+
 	int interface;
 	uint16_t vendor_id;
 	uint16_t product_id; 
@@ -46,7 +50,6 @@ struct UsbDevice{
 	libusb_device_handle* device_handle;
 };
 typedef struct UsbDevice UsbDevice;
-
 
 struct UsbDeviceStatusListener{
 	UsbDevice device;
