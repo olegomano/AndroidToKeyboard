@@ -27,29 +27,20 @@
 
 
 int alive =  1;
+void daemonMain(int pid){
+	DAEMON_FILE_PRINT("DAEMON STARTED  ", pid);
+}
 
-/*
-void onDataRecieved(UsbDevice* dev,u_char* data, int length){
+void onDataRead(int dev_id, char* data){
 	int* recieved_data = (int*)data;
 	printf("Key Pressed: %04x \n", *recieved_data);
 	char pressedKey;
-	if(dev->endianess == SAME){
+	if(android_device_get_device_id(dev_id)->endianess == SAME){
 		pressedKey = data[0];
 	}else{
 		pressedKey = data[3];
 	}
 	keyPress(pressedKey);
-}; //when data is recieved
-*/
-void daemonMain(int pid){
-	DAEMON_FILE_PRINT("DAEMON STARTED  ", pid);
-}
-
-
-void onDataRead(int dev_id, char* data){
-	int* recieved_data = (int*)data;
-	printf("Key Pressed: %04x \n", *recieved_data);
-	
 };
 
 void onAndroidConnected(int dev_id){};
