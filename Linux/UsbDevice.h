@@ -59,7 +59,6 @@ struct AndroidDevice{
 	libusb_device* device;              
 	libusb_device_handle* device_handle;
 
-
 	AndroidDeviceCallbacks callback;
 };
 typedef struct AndroidDevice AndroidDevice;
@@ -68,9 +67,10 @@ int android_device_create_context();
 int android_device_reg(int vid, int pid); //returns ID of device
 int android_device_destroy_context();
 int android_device_poll_events();
-int android_device_send_data(int dev_id, char* data, int length);
+int android_device_send_data(int dev_id, unsigned char* data, int length);
 int android_device_set_callbacks(int dev_id, AndroidDeviceCallbacks callback);
 void android_device_print_device(int dev_id);
 AndroidDevice* android_device_get_device(int vid, int pid);
+AndroidDevice* android_device_get_device_id(int dev_id);
 
 #endif

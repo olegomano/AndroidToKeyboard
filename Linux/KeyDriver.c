@@ -46,13 +46,34 @@ void daemonMain(int pid){
 }
 
 
+void onDataRead(int dev_id, char* data){
+	int* recieved_data = (int*)data;
+	printf("Key Pressed: %04x \n", *recieved_data);
+	
+};
+
+void onAndroidConnected(int dev_id){};
+void onAndroidDisConnected(int dev_id){};
+void onAndroidTransferStateChanged(int dev_id, int new_state){};
+
+
 
 int main(){
 	
 
 	openUinput();
 	android_device_create_context();
+	AndroidDeviceCallbacks callbacks;
+	callbacks.onDataRead = onDataRead;
+	callbacks.onAndroidConnected = onAndroidConnected;
+	callbacks.onAndroidDisConnected  = onAndroidDisConnected;
+	callbacks.onAndroidTransferStateChanged = onAndroidTransferStateChanged;
+
 	int dev_id = android_device_reg(4046,20923);
+	android_device_set_callbacks(dev_id,callbacks);
+
+
+
 	while(1){
 		android_device_poll_events();
 	}

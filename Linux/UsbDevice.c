@@ -17,6 +17,11 @@
 
 #include "UsbDevice.h"
 
+#define TYPE_CONF 1
+#define TYPE_DATA 2
+#define TYPE_CLS 3
+
+
 static void error(int code);
 static int detatch_kernel_driver_error(int result);
 static int claim_interface_error(int error);
@@ -33,6 +38,8 @@ const char* serialnumber = "0";
 int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
 int device_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
 AndroidDevice* android_device_match_port(uint8_t* path);
+void android_device_swap_endianess(char* in, char* out, int length);
+int android_device_handshake(int dev_id);
 
 libusb_context* cntx;
 AndroidDevice** devices;
@@ -47,7 +54,11 @@ int android_device_create_context(){
 	return 0;
 }
 
+/*
+	Register for hotplug events for a device with the specified version id / product id
+	Returns a integer representing the device
 
+*/
 int android_device_reg(int vid, int pid){
 	AndroidDevice* n_dev = malloc(sizeof(AndroidDevice));
 	
@@ -87,54 +98,110 @@ int android_device_reg(int vid, int pid){
 
 	return m_id;
 }
-/*
-int doHandshake(int dev_id){
-	char buffer[32];
+
+void android_device_read_thread(int dev_id){
+	AndroidDevice* dev = devices[dev_id];
+	char* packet = NULL;
+	int packet_size_real = 0;
 	int read_bytes;
-	memset(buffer,0,32);
-	int err = libusb_bulk_transfer(devices[dev_id]->device_handle,IN,(unsigned char*)buffer,32,&read_bytes,5000);
-	printf("Handshake read %d bytes\n", read_bytes);
-	if(err){
-		error(err);
-		printf("Failed Handshake\n");
-		return 0;
-	}
-	int* a_ints = (int*)buffer;
-	if(a_ints[0] == 1){ 
-		devices[dev_id]->endianess = SAME;
-		devices[dev_id]->packet_size = a_ints[1];
-		printf("Endianess is same, packet size is %d\n",devices[dev_id]->packet_size);
-	}else{
-		devices[dev_id]->endianess = OPPOSITE;
-		int converted_size;
-		char* size_as_char = (char*)(&converted_size);
-		size_as_char[0] = buffer[7];
-		size_as_char[1] = buffer[6];
-		size_as_char[2] = buffer[5];
-		size_as_char[3] = buffer[4];
-		devices[dev_id]->packet_size = converted_size;
-		printf("Endianess is opposite, packet size %d\n",converted_size);
-	}
-	a_ints[0] = 1;
-	
-	err = sendData(devices[dev_id],buffer,32);
-	int retry_count = 0;
-	while(err && retry_count < 3){
-		printf("Retrying\n");
-		retry_count++;
-		err = sendData(dev,buffer,32);
-		if(retry_count == 3 && error){
-			return 0;
+	int packet_type;
+	int read_result;
+	while(dev->conncetion_status == CONNECTION_STATUS_CONNECTED){
+		if(dev->transfer_status == TRASNFER_STATUS_HANDSHAKE){
+			android_device_handshake(dev_id);
+			if(packet != NULL){
+				free(packet);
+			}
+			packet_size_real = dev->packet_size + sizeof(int);
+			packet = malloc(packet_size_real);
+		}else if(dev->transfer_status == TRANSFER_STATUS_WAITING){
+			memset(packet,0,packet_size_real);
+			read_result = libusb_bulk_transfer(dev->device_handle,IN,packet,packet_size_real,&read_bytes,0);
+			switch(read_result){
+		    	case 0: 
+		    		printf("Successfully read %d bytes \n", read_bytes); break; 
+    			case LIBUSB_ERROR_TIMEOUT: 
+    				printf("ERROR: read timed out \n"); break; 
+    			case LIBUSB_ERROR_PIPE: 
+    				printf("ERROR: endpoint halted \n"); break;
+    			case LIBUSB_ERROR_OVERFLOW: 
+    				printf("ERROR: overflow \n"); break;
+    			case LIBUSB_ERROR_NO_DEVICE: 
+    				printf("ERROR: decice disconnected \n"); break; 
+			}
+			if(read_result != 0) continue; //if there is error reading we pretend we never got it
+			if(dev->endianess == SAME){
+				packet_type = *packet;
+			}else{
+				android_device_swap_endianess(packet,&packet_type,4);
+			}
+			switch(packet_type){
+				case TYPE_CONF: break;
+				case TYPE_CLS:
+					printf("Cancle Packet\n"); 
+					dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
+					break;
+				case TYPE_DATA: 
+					printf("Data Packet\n");
+					dev->callback.onDataRead(dev->dev_id,packet + sizeof(int));
+					break;
+			}
+
 		}
 	}
-	printf("Handshake success\n");
-	printDevice(dev);
-	return 1;
 }
+/*
+			Handshake Format is 32 bytes (4 ints)
+      Cntrl Int   Packet Size   Extra Data  Extra Data
+	    0x0001      OxFFFF        0x0000      0x0000
+      (always 1)
 */
+int android_device_handshake(int dev_id){
+	AndroidDevice* dev = devices[dev_id];
+	libusb_device_handle* handle = dev->device_handle;
+	unsigned char io_buffer[32];
+	int read_bytes;
+	memset(io_buffer,0,32);
+	int err = libusb_bulk_transfer(handle,IN,io_buffer,32,&read_bytes,5000);
+	if(err){
+		error(err);
+		printf("Timed out Handshake Read\n");
+		return 0;
+	}
+	int* io_buffer_int = (int*)io_buffer;
+	int  packet_size;
+	if(*io_buffer_int == 1){
+		packet_size = io_buffer_int[1];
+		dev->endianess = SAME;
+	}else{
+		android_device_swap_endianess(io_buffer + sizeof(int),(char*)&packet_size,4);
+		dev->endianess = OPPOSITE;
+	}
+	printf("Device Packet Size: %d\n",packet_size);	
+	dev->packet_size = packet_size;
 
+	io_buffer_int[0] = 1;
+	err = android_device_send_data(dev_id,io_buffer,32);
+	if(err){
+		printf("Failed Handshake Responce\n");
+		return 0;
+	}
 
+	dev->transfer_status = TRANSFER_STATUS_WAITING;
+	android_device_print_device(dev_id);
+	printf("Handshake Success\n");
+	return 1;
+	
+}
 
+/*
+	Gets the hotplug events for a device in accessoy mode.
+	All Anroid devices in accessory mode have the same VID/PID. 
+	Beucause of this I destinguish between accessory mode devices using their port address. 
+	The assumption is that when a device is connected in Android Mode, and then reconnects in Accessory Mode it will
+	be on the same port adress. 
+
+*/
 int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data){
 	printf("An Accessory Has Arived\n");
 	uint8_t device_port_path[7];
@@ -165,6 +232,9 @@ int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libu
 			matched_dev->conncetion_status = CONNECTION_STATUS_CONNECTED;
 			matched_dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
 			android_device_print_device(matched_dev->dev_id);
+			pthread_t thread;
+			pthread_create(&thread, NULL, android_device_read_thread,matched_dev->dev_id);
+			//android_device_handshake(matched_dev->dev_id);
 		}else if(event == LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT){
 			printf("An Accessory Has Left\n");
 			matched_dev->conncetion_status = CONNECTION_STATUS_DISCONNECTED;
@@ -175,7 +245,10 @@ int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libu
 	return 0;
 }
 
-
+/*
+	When a Device Is connected wtih a specified VID / PID in android_device_reg this callback is invoked
+	Using the VIP/PID I find my AndroiDevice which is registered to the same VID/PID. 
+*/
 int device_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data){
 	printf("Device Hotplug Event\n");
 	struct libusb_device_descriptor device_descrptn;
@@ -231,12 +304,33 @@ int android_device_poll_events(){
 }
 
 
-int android_device_send_data(int dev_id, char* data, int length){
-
+int android_device_send_data(int dev_id, unsigned char* data, int length){
+	int transferred_bytes;
+	int result = libusb_bulk_transfer(devices[dev_id]->device_handle,OUT,data,length,&transferred_bytes,1500);
+	switch(result){
+	    case 0: 
+	    	printf("Successfully transfered %d bytes \n", transferred_bytes); break; 
+    	case LIBUSB_ERROR_TIMEOUT: 
+    		printf("ERROR: transfer timed out \n"); break; 
+    	case LIBUSB_ERROR_PIPE: 
+    		printf("ERROR: endpoint halted \n"); break;
+    	case LIBUSB_ERROR_OVERFLOW: 
+    		printf("ERROR: overflow \n"); break;
+    	case LIBUSB_ERROR_NO_DEVICE: 
+    		printf("ERROR: decice disconnected \n"); break; 
+	}	
+	return result;
 }
 
 int android_device_set_callbacks(int dev_id, AndroidDeviceCallbacks callback){
 	devices[dev_id]->callback = callback;
+}
+
+void android_device_swap_endianess(char* in, char* out, int length){
+	int i;
+	for(i = 0; i < length; i++){
+		out[i] = in[length - 1 - i];
+	}
 }
 
 AndroidDevice* android_device_match_port(uint8_t* path){
@@ -272,15 +366,19 @@ AndroidDevice* android_device_get_device(int vid, int pid){
 	return NULL;
 }
 
+AndroidDevice* android_device_get_device_id(int dev_id){
+	return devices[dev_id];
+}
+
 void android_device_print_device(int dev_id){
 	AndroidDevice* dev = devices[dev_id];
 	printf("Device %d\n", dev_id);
 	printf("  VID: %d\n", dev->vendor_id);
 	printf("  PID: %d\n", dev->product_id);
-	printf("  Packet Size: %d\n" + dev->packet_size);
-	printf("  Endianess: %d\n", dev->endianess);
-	printf("  Connection: %d: \n", dev->conncetion_status);
-	printf("  Transfer: %d \n", dev->transfer_status);
+	printf("  Packet Size: %d\n", dev->packet_size);
+	printf("  Endianess:   %d\n", dev->endianess);
+	printf("  Connection:  %d\n", dev->conncetion_status);
+	printf("  Transfer:    %d\n", dev->transfer_status);
 	printf("  Port Path: ");
 	int i;
 	for(i = 0; i < 7; i++){
