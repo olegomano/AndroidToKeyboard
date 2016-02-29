@@ -16,17 +16,6 @@
 */
 
 #include "UsbDevice.h"
-#define TYPE_CONF 1
-#define TYPE_DATA 2
-#define TYPE_CLS 3
-
-
-static const int g_android_PID_VID_len = 1;
-static int g_android_PID_array[1] = {20923}; //VID and PID of my device, every device has its own VID/PID combo
-static int g_android_VID_array[1] = {4046};
-
-static int g_accessory_mode_VID[1] = {0x18d1};
-static int g_accessory_mode_PID[1] = {0x2D01};
 
 static void error(int code);
 static int detatch_kernel_driver_error(int result);
@@ -40,215 +29,70 @@ const char* version = "v.10";
 const char* uri = "www.dankmaymays.com";
 const char* serialnumber = "0";
 
-struct UsbPacketHeader{
-	int type;
-};
-typedef struct UsbPacketHeader UsbPacketHeader;
 
-struct UsbPacket{
-	UsbPacketHeader header;
-	char data;
-};
-typedef struct UsbPacket UsbPacket;
+int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
+int device_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
+AndroidDevice* android_device_match_port(uint8_t* path);
 
-int hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
-int accesssory_hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
-UsbDevice findAndroidDevice(libusb_context* cntx);
-int setToAccessoryMode(UsbDevice* device);
-UsbDevice connectToAccessory(libusb_context* cntx);
-int doHandshake(UsbDevice* dev);
-void usbDeviceReadThread(UsbDeviceStatusListener* device);
-void swapEndianess(char* in, char* out, int length);
-UsbDeviceStatusListener* current_callback;
+libusb_context* cntx;
+AndroidDevice** devices;
+int max_device = 100;
+int alloced_device_count = 0;
 
-/*
-	Function does all the work
-	1. Searches through all usb devices for a device whose PID and VID are in the VID/PID arrays
-	2. Opens the found Device.
-	3. Sends the contorl messages to the device to put it into accessory mode
-	4. Frees the old device  
-	5. Looks for a device whose VID and PID match the ones specified by google for an android phone in accessory mode
-	6. Opens the device and takes contorl of the Interface
-	7. Does a handshake to determine endianess and packet size
-	8. Device is now ready for I/O
-*/
-int connectToAndroidDevice(libusb_context* cntx, UsbDevice* device){
-	UsbDevice android_device = findAndroidDevice(cntx);
-	if(android_device.is_valid == 0){
-		printf("Failed Finding Device\n");
-		return 1;
-	}
-	libusb_open(android_device.device, &(android_device.device_handle) );
-	setToAccessoryMode(&android_device);
-	freeDevice(&android_device);
-	listDevices(cntx);
-
-	*device = connectToAccessory(cntx);
-	if(!device->is_valid){
-		printf("Failed to connect to accesssory\n");
-		return 1;
-	}
-	doHandshake(device);
+int android_device_create_context(){
+	libusb_init(&cntx);
+	libusb_set_debug(cntx, 3); //set verbosity level to 3, as suggested in the documentation
+	devices = malloc(sizeof(AndroidDevice*) * max_device);
+	memset(devices,0,sizeof(AndroidDevice*) * max_device);
 	return 0;
-};
+}
 
 
-/*
-	1. Registers for Callbacks that fire when a device of specified VID and PID is connected
-	2. When callback for regular android device is invoked it attempts to put it into accessory mode
-	3. Puts the android device into accessory mode
-	4. When callback for accessory mode device is fire it takes controll of the accessory mode device from the kernel
-	5. Does a handshake to determine session parameters
-*/
-int connectToAndroidDeviceHotplug(UsbDeviceStatusListener* callback,libusb_context* cntx,int vid, int pid){
-	printf("Registering for Device Callback VID: %d , PID: %d\n", vid,pid);
-	libusb_hotplug_callback_handle handle;
-	current_callback = callback;
-	callback->device.vendor_id = vid;
-	callback->device.product_id = pid;
-	int rc;
+int android_device_reg(int vid, int pid){
+	AndroidDevice* n_dev = malloc(sizeof(AndroidDevice));
+	
+	n_dev->vendor_id = vid;
+	n_dev->product_id = pid;
+	n_dev->conncetion_status = CONNECTION_STATUS_DISCONNECTED;
+	n_dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
+	
+	int m_id = alloced_device_count;
+	n_dev->dev_id = m_id;
+
+	devices[alloced_device_count++] = n_dev;
+	
+
+	libusb_hotplug_callback_handle android_handle;
+	libusb_hotplug_callback_handle accessory_handle;
+	
+	int rc; 
 	rc = libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED, 0, vid, pid,
-												LIBUSB_HOTPLUG_MATCH_ANY, hotplug_callback, NULL,
-												&handle);
-		
+												LIBUSB_HOTPLUG_MATCH_ANY, device_hotplug, NULL,
+												&android_handle);
+
+	if(rc != LIBUSB_SUCCESS){
+		printf("Failed Singing up for Hotplug events\n");
+		return -1;
+	}
+	
+	//this one should be put in the create_context
 	rc = libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED | LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, 0, 0x18d1, 0x2D01,
-												LIBUSB_HOTPLUG_MATCH_ANY, accesssory_hotplug_callback, NULL,
-												&(current_callback->device.hotplug_callback_handle) );
+												LIBUSB_HOTPLUG_MATCH_ANY, accessory_hotplug, NULL,
+												&accessory_handle);
 	
 	if(rc != LIBUSB_SUCCESS){
 		printf("Failed Singing up for Hotplug events\n");
-		return 0;
-	}else{
-		printf("Signed up for HotplugEvent \n");
+		return -1;
 	}
-	return 1;
 
-}
-
-/**
-	Opens up a thread that constantly polls the device for new data to read
-	Calls the onDataRead callback when it reads new data from the device
-**/
-pthread_t registerForDataRead(UsbDeviceStatusListener* listener){
-	pthread_t thread;
-	listener->device.is_read = 1;
-	pthread_create(&thread, NULL, usbDeviceReadThread,listener);
-	return thread;	
-};
-
-/**
-	Callback that get called when a device is plugged in if we used the connectToAndroidDeviceHotplug
-	It then puts the device into accessory mode and disconnects from it, as well as regestering a callback for the
-	VID and PID of an Android Accessory.
-**/
-int hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data) {	
-	if (LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED == event) {
-		printf("Android device connected\n");
-		UsbDevice mDevice;
-		mDevice.device = dev;
-		printf("Device Handle %04x\n",mDevice.device_handle);
-		libusb_open(mDevice.device,&mDevice.device_handle);
-		if(setToAccessoryMode(&mDevice)){//returns true if error
-			current_callback->onLibUsbFail("Failed to set Accessory Mode",1);
-			return 0;
-		}
-		//freeDevice(&mDevice);
-		printf("Finished Setting to Accessory Mode\n");
-		listDevices(ctx);
-	}else{
-		printf("Unhandled event %d\n", event);
-	}
-	return 0;
+	return m_id;
 }
 /*
-	Callback when a AndroidAcessory connects
-	Attempts to open the accessory and take controll of the interface from the kernel
-*/
-int accesssory_hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data) {	
-	printf("Accessory USB event\n");
-	if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED){
-		printf("Accessory is plugged in\n");
-		current_callback->device = connectToAccessory(ctx);
-		if(!current_callback->device.is_valid){
-			current_callback->onLibUsbFail("Failed To connect to accessory",15);
-			return 0;
-		}
-		current_callback->device.status = WAITING_FOR_HANDSHAKE;
-		registerForDataRead(current_callback);
-		current_callback->onDeivceOpened();
-	}else if(event == LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT){
-		current_callback->device.status = DISCONNECTED;
-		freeDevice(&current_callback->device);
-		current_callback->onDeviceDisconnected();
-	}
-	return 0;
-}
-
-void usbDeviceReadThread(UsbDeviceStatusListener* device){
-	unsigned char* packet;
-	int readResult;
-	int read_bytes;	
-	printf("Device Reading Started\n");
-	while(device->device.is_read){
-		while(device->device.status == WAITING_FOR_HANDSHAKE){
-			if(device->device.status == DISCONNECTED){
-				return;
-			}
-			int h_res = doHandshake(&(device->device));
-			if(h_res){
-				device->device.status = WORKING;
-				packet = malloc(device->device.packet_size * sizeof(char) + sizeof(UsbPacketHeader) );		
-			}
-		}
-		memset(packet,0,device->device.packet_size*sizeof(char) + + sizeof(UsbPacketHeader) );
-		readResult = libusb_bulk_transfer(device->device.device_handle,IN,packet,device->device.packet_size*sizeof(char) + sizeof(UsbPacketHeader),&read_bytes,0);
-		switch(readResult){
-		    case 0: 
-		    	printf("Successfully read %d bytes \n", read_bytes); break; 
-    		case LIBUSB_ERROR_TIMEOUT: 
-    			printf("ERROR: read timed out \n"); break; 
-    		case LIBUSB_ERROR_PIPE: 
-    			printf("ERROR: endpoint halted \n"); break;
-    		case LIBUSB_ERROR_OVERFLOW: 
-    			printf("ERROR: overflow \n"); break;
-    		case LIBUSB_ERROR_NO_DEVICE: 
-    			printf("ERROR: decice disconnected \n"); break; 
-		}
-		if(!readResult){
-			UsbPacketHeader* header = (UsbPacketHeader*)packet;
-			UsbPacketHeader  header_endian = *header;
-			if(device->device.endianess != SAME){
-				swapEndianess((char*)header,(char*)(&header_endian),sizeof(UsbPacketHeader));
-			}
-			printf("Packet header: %04x\n", header_endian.type);
-			switch(header_endian.type){
-				case TYPE_CONF: 
-					break;
-				case TYPE_CLS: 
-					device->device.status = WAITING_FOR_HANDSHAKE;
-					break;
-				case TYPE_DATA: 
-					device->onDataRecieved(&device->device,packet + sizeof(UsbPacketHeader),read_bytes);
-					break;
-			}
-		}
-	}
-	free(packet);
-	printf("Read Thread Closed\n");
-};
-
-/*
-	Does the handshake with the device that figures out the endianess and packet size to user for the sesion
-	The device sends 32 bytes
-	First 4 are control bytes to be interpreted as as int to determine if the endianess is different
-	Second 4 bytes represet the size of the packet to be used from now on
-	We then reply with our own controll message so the device can know our endianess
-*/
-int doHandshake(UsbDevice* dev){
+int doHandshake(int dev_id){
 	char buffer[32];
 	int read_bytes;
 	memset(buffer,0,32);
-	int err = libusb_bulk_transfer(dev->device_handle,IN,(unsigned char*)buffer,32,&read_bytes,5000);
+	int err = libusb_bulk_transfer(devices[dev_id]->device_handle,IN,(unsigned char*)buffer,32,&read_bytes,5000);
 	printf("Handshake read %d bytes\n", read_bytes);
 	if(err){
 		error(err);
@@ -257,23 +101,23 @@ int doHandshake(UsbDevice* dev){
 	}
 	int* a_ints = (int*)buffer;
 	if(a_ints[0] == 1){ 
-		dev->endianess = SAME;
-		dev->packet_size = a_ints[1];
-		printf("Endianess is same, packet size is %d\n",dev->packet_size);
+		devices[dev_id]->endianess = SAME;
+		devices[dev_id]->packet_size = a_ints[1];
+		printf("Endianess is same, packet size is %d\n",devices[dev_id]->packet_size);
 	}else{
-		dev->endianess = OPPOSITE;
+		devices[dev_id]->endianess = OPPOSITE;
 		int converted_size;
 		char* size_as_char = (char*)(&converted_size);
 		size_as_char[0] = buffer[7];
 		size_as_char[1] = buffer[6];
 		size_as_char[2] = buffer[5];
 		size_as_char[3] = buffer[4];
-		dev->packet_size = converted_size;
+		devices[dev_id]->packet_size = converted_size;
 		printf("Endianess is opposite, packet size %d\n",converted_size);
 	}
 	a_ints[0] = 1;
 	
-	err = sendData(dev,buffer,32);
+	err = sendData(devices[dev_id],buffer,32);
 	int retry_count = 0;
 	while(err && retry_count < 3){
 		printf("Retrying\n");
@@ -287,194 +131,165 @@ int doHandshake(UsbDevice* dev){
 	printDevice(dev);
 	return 1;
 }
-
-
-/*
-	Synchronously sends data to the android device
 */
-int  sendData(UsbDevice* device, void* data, int length){
-	/*
-	int libusb_bulk_transfer 	( 	
-		struct libusb_device_handle *  	dev_handle,
-		unsigned char  	endpoint,
-		unsigned char *  	data,
-		int  	length,
-		int *  	transferred,
-		unsigned int  	timeout 
-	) 
-	*/
-	int result;
-	int transferred_bytes;
-	result = libusb_bulk_transfer(device->device_handle,OUT,(unsigned char*)data,length,&transferred_bytes,1500);
-	switch(result){
-	    case 0: 
-	    	printf("Successfully transfered %d bytes \n", transferred_bytes); break; 
-    	case LIBUSB_ERROR_TIMEOUT: 
-    		printf("ERROR: transfer timed out \n"); break; 
-    	case LIBUSB_ERROR_PIPE: 
-    		printf("ERROR: endpoint halted \n"); break;
-    	case LIBUSB_ERROR_OVERFLOW: 
-    		printf("ERROR: overflow \n"); break;
-    	case LIBUSB_ERROR_NO_DEVICE: 
-    		printf("ERROR: decice disconnected \n"); break; 
-	}	
-	return result;
-}
 
 
-/*
-	Looks through Every attatched device, and finds the one that has the a VID and PID that is presend in the VID and PID arrays
-	References the device is finds
-*/
-UsbDevice findAndroidDevice(libusb_context* cntx){ //finds and references the device
-	UsbDevice ret_device;
-	ret_device.is_valid = 0;
-	ret_device.is_open = 0;
-	ret_device.is_accessory = 0;
-	ret_device.interface = 0;
 
-	libusb_device **devs;
-	ssize_t dev_count = libusb_get_device_list(cntx, &devs);
-	printf("There are %d attatched devices\n",dev_count);
-	struct libusb_device_descriptor device_descrptn;
-	int count = 0;
-	while(count < dev_count){
-		libusb_get_device_descriptor(devs[count],&device_descrptn);
-		uint16_t vendor_id  = device_descrptn.idVendor;
-		uint16_t product_id = device_descrptn.idProduct;
-		printf("	VENDOR_ID: %d, PRODUCT_ID: %d \n", vendor_id,product_id);
-		int vid_pid= 0;
-		while(vid_pid < g_android_PID_VID_len){
-			if(g_android_VID_array[vid_pid] == vendor_id && g_android_PID_array[vid_pid] == product_id){
-				ret_device.is_valid = 1;
-				ret_device.device = devs[count];
-				libusb_ref_device(ret_device.device); 	
-				libusb_free_device_list(devs, 0);
-				printf("Found Device \n");
-				return ret_device;
+int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data){
+	printf("An Accessory Has Arived\n");
+	uint8_t device_port_path[7];
+	libusb_get_port_numbers(dev,device_port_path,7);
+	AndroidDevice* matched_dev = android_device_match_port(device_port_path);
+	if(matched_dev != NULL){
+		if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED){
+			printf("An Accessory Has Arived\n");
+
+			int res;
+			matched_dev->device = dev;
+
+			res = libusb_open(matched_dev->device,&matched_dev->device_handle);
+			
+			error(res);
+					
+			res = libusb_detach_kernel_driver(matched_dev->device_handle,0);
+			
+			if(detatch_kernel_driver_error(res)){
+			//	return 0;
 			}
-			++vid_pid;
+
+			res = libusb_claim_interface(matched_dev->device_handle, 0);	
+			if(claim_interface_error(res)){
+			//	return 0;
+			}
+			
+			matched_dev->conncetion_status = CONNECTION_STATUS_CONNECTED;
+			matched_dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
+			android_device_print_device(matched_dev->dev_id);
+		}else if(event == LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT){
+			printf("An Accessory Has Left\n");
+			matched_dev->conncetion_status = CONNECTION_STATUS_DISCONNECTED;
+			android_device_print_device(matched_dev->dev_id);	
 		}
-		++count;
 	}
-	libusb_free_device_list(devs, 0);
-	return ret_device;
-
-};
-
-void listDevices(libusb_context* cntx){
-	libusb_device **devs;
-	ssize_t dev_count = libusb_get_device_list(cntx, &devs);
-	printf("There are %d attatched devices\n",dev_count);
-	struct libusb_device_descriptor device_descrptn;
-	int count = 0;
-	while(count < dev_count){
-		libusb_get_device_descriptor(devs[count],&device_descrptn);
-		uint16_t vendor_id  = device_descrptn.idVendor;
-		uint16_t product_id = device_descrptn.idProduct;
-		printf("	VENDOR_ID: %d, PRODUCT_ID: %d \n", vendor_id,product_id);
-		count++;
-	}
-}
-
-/*
-	Requires that the device is already opened
-	Sets the device into accessory mode
-*/
-int setToAccessoryMode(UsbDevice* device){
-	printf("Setting device to accessory mode\n");
-	printf("Device Handle: %04x \n",device->device_handle);
-
-	int response;
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,0,(unsigned char*)manufacturer,strlen(manufacturer),0);
-	if(response < 0){error(response);return 1;}
-
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,1,(unsigned char*)modelName,strlen(modelName),0);
-	if(response < 0){error(response);return 1;}
-
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,2,(unsigned char*)protocol,strlen(protocol),0);
-	if(response < 0){error(response);return 1;}
-
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,3,(unsigned char*)version,strlen(version),0);
-	if(response < 0){error(response);return 1;}
-
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,4,(unsigned char*)uri,strlen(uri),0);
-	if(response < 0){error(response);return 1;}
-
-	response = libusb_control_transfer(device->device_handle,0x40,52,0,5,(unsigned char*)serialnumber,strlen(serialnumber),0);
-	if(response < 0){error(response);return 1;}	
-
-	response = libusb_control_transfer(device->device_handle,0x40,53,0,0,NULL,0,0);
-	if(response < 0){error(response);return 1;}
 
 	return 0;
-};
+}
 
 
-UsbDevice connectToAccessory(libusb_context* cntx){
-	UsbDevice ret_device;
-	ret_device.is_valid = 0;
-	ret_device.is_open = 0;
-	ret_device.is_accessory = 0;
-	ret_device.interface = 0;
+int device_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data){
+	printf("Device Hotplug Event\n");
+	struct libusb_device_descriptor device_descrptn;
+	libusb_get_device_descriptor(dev,&device_descrptn);
+	AndroidDevice* m_dev = android_device_get_device(device_descrptn.idVendor,device_descrptn.idProduct);
+	if(m_dev != NULL){
+		if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED){
+			printf("An Android Device has Arrived\n");
+			libusb_get_port_numbers(dev,m_dev->port_numbers,7);
+			
+			android_device_print_device(m_dev->dev_id);
 
-	ret_device.device_handle = libusb_open_device_with_vid_pid(cntx,g_accessory_mode_VID[0],g_accessory_mode_PID[0]);
-	if(ret_device.device_handle == NULL){
-		printf("Failed to find accesssory\n");
-		return ret_device;
+			libusb_device_handle* handle;
+			libusb_open(dev,&handle);
+
+
+			printf("Setting device to accessory mode\n");
+			int response;
+			response = libusb_control_transfer(handle,0x40,52,0,0,(unsigned char*)manufacturer,strlen(manufacturer),0);
+			if(response < 0){error(response);return 0;}
+		
+			response = libusb_control_transfer(handle,0x40,52,0,1,(unsigned char*)modelName,strlen(modelName),0);
+			if(response < 0){error(response);return 0;}
+
+			response = libusb_control_transfer(handle,0x40,52,0,2,(unsigned char*)protocol,strlen(protocol),0);
+			if(response < 0){error(response);return 0;}
+
+			response = libusb_control_transfer(handle,0x40,52,0,3,(unsigned char*)version,strlen(version),0);
+			if(response < 0){error(response);return 0;}
+
+			response = libusb_control_transfer(handle,0x40,52,0,4,(unsigned char*)uri,strlen(uri),0);
+			if(response < 0){error(response);return 0;}
+
+			response = libusb_control_transfer(handle,0x40,52,0,5,(unsigned char*)serialnumber,strlen(serialnumber),0);
+			if(response < 0){error(response);return 0;}	
+
+			response = libusb_control_transfer(handle,0x40,53,0,0,NULL,0,0);
+			if(response < 0){error(response);return 0;}
+		}
 	}
-	ret_device.is_valid = 1;
-	ret_device.is_accessory = 1;
-	ret_device.is_open = 1;
-	ret_device.device = libusb_get_device (ret_device.device_handle);
-	int res;
-	res = libusb_detach_kernel_driver(ret_device.device_handle, ret_device.interface);
-	if(detatch_kernel_driver_error(res)){
-		ret_device.is_valid = 0;
-		return ret_device;
-	}
-	res = libusb_claim_interface(ret_device.device_handle, ret_device.interface);	
-	if(claim_interface_error(res)){
-		ret_device.is_valid = 0;
-		return ret_device;
-	}
-	return ret_device;
+	return 0;
 
 }
 
-void swapEndianess(char* in, char* out, int length){
+
+
+int android_device_destroy_context(){
+
+}
+
+int android_device_poll_events(){
+	libusb_handle_events(cntx);
+}
+
+
+int android_device_send_data(int dev_id, char* data, int length){
+
+}
+
+int android_device_set_callbacks(int dev_id, AndroidDeviceCallbacks callback){
+	devices[dev_id]->callback = callback;
+}
+
+AndroidDevice* android_device_match_port(uint8_t* path){
 	int i;
-	for(i = 0; i < length; i++){
-		out[i] = in[length - 1 - i];
+	for(i = 0; i < alloced_device_count; i++){
+		printf("Checking Dev %d\n",i );
+		AndroidDevice* dev = devices[i];
+		int c;
+		int wrong = 0;
+		for(c = 0; c < 1; c++){
+			printf("Given Path: %d Device Path: %d\n",path[c],dev->port_numbers[c]);
+			if(path[c] != dev->port_numbers[c]){
+				++wrong;
+			}
+		}
+		if(wrong == 0){
+			return dev;
+		}
 	}
+	return NULL;
 }
 
 
-void printDevice(UsbDevice* dev){
-	printf("Device: \n");
-	printf("	Vendor id: %d\n",dev->vendor_id);
-	printf("	Product id: %d\n", dev->product_id);
-	printf("	Is Valid: %d\n",dev->is_valid);
-	printf("	Is Open: %d\n", dev->is_open);
-	printf("	Status: %d\n",dev->status);
-	printf("	Packet size: %d\n",dev->packet_size);
-	printf("	Endianess: %d\n",dev->endianess);
-};
+AndroidDevice* android_device_get_device(int vid, int pid){
+	int i;
+	for(i = 0; i < alloced_device_count; i++){
+		AndroidDevice* device = devices[i];
+		if(device->vendor_id == vid && device->product_id == pid){
+			printf("Found Device with VID %d, PID %d\n",vid,pid);
+			return device;
+		}
+	}
+	return NULL;
+}
 
-void freeDevice(UsbDevice* device){
-	printf("Freeing device\n");
-	if(!device->is_valid){
-		return;
+void android_device_print_device(int dev_id){
+	AndroidDevice* dev = devices[dev_id];
+	printf("Device %d\n", dev_id);
+	printf("  VID: %d\n", dev->vendor_id);
+	printf("  PID: %d\n", dev->product_id);
+	printf("  Packet Size: %d\n" + dev->packet_size);
+	printf("  Endianess: %d\n", dev->endianess);
+	printf("  Connection: %d: \n", dev->conncetion_status);
+	printf("  Transfer: %d \n", dev->transfer_status);
+	printf("  Port Path: ");
+	int i;
+	for(i = 0; i < 7; i++){
+		printf("%d ", dev->port_numbers[i]);
 	}
-	device->is_valid = 0;
-	device->is_read = 0;
-	if(device->is_open){
-		printf("	Device was open, Closing\n");
-		libusb_release_interface(device->device_handle,device->interface);	
-		libusb_close(device->device_handle);
-	}
-	libusb_unref_device(device->device);
-};
+	printf("\n");
+}
+
+
 
 static int claim_interface_error(int result){
 	switch(result){
@@ -490,7 +305,9 @@ static int claim_interface_error(int result){
 		case LIBUSB_ERROR_NO_DEVICE: 
 			printf("ERROR CLAIMING INTERFACE: could not find device\n");
 			return 1;
-		default: return 1;//failure
+		default: 
+			printf("ERROR: OTHER ERROR\n");
+		return 1;//failure
 	}
 }
 
