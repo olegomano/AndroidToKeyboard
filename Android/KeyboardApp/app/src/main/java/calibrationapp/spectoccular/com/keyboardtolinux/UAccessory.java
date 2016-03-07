@@ -16,7 +16,6 @@
 */
 package calibrationapp.spectoccular.com.keyboardtolinux;
 
-import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -36,6 +35,7 @@ import java.nio.ByteBuffer;
  * Created by Oleg Tolstov on 8:46 PM, 1/19/16. KeyboardToLinux
  */
 public class UAccessory extends BroadcastReceiver {
+    public static final int WRITE_PACKET_SIZE = 32;
     private static final int TYPE_CONF = 1;
     private static final int TYPE_DATA = 2;
     private static final int TYPE_CLS = 3;
@@ -46,7 +46,6 @@ public class UAccessory extends BroadcastReceiver {
         public void onIOClosed();
     }
 
-    private int headerSize = 4;
     private int packetSize = 256;
 
     private volatile byte[] packetRead;
@@ -81,8 +80,12 @@ public class UAccessory extends BroadcastReceiver {
     }
 
     public boolean requestPermission(){
-        if(manager.getAccessoryList()!=null) {
+        if(manager.getAccessoryList()!=null) {         //Check to see if any devices are plugged in
             accessory = manager.getAccessoryList()[0]; //WE ONLY GOT 1 USB PORT
+            if(manager.hasPermission(accessory)){
+                hasPermission = true;
+                return true;
+            }
             manager.requestPermission(accessory, mPermissionIntent);
             return true;
         }
@@ -90,7 +93,19 @@ public class UAccessory extends BroadcastReceiver {
     }
 
     public boolean hasPermission(){
-        return hasPermission;
+        if(manager.getAccessoryList()!=null) {
+            accessory = manager.getAccessoryList()[0]; //WE ONLY GOT 1 USB PORT
+            if (manager.hasPermission(accessory)) {
+                hasPermission = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean isPluggedIn(){
+        if(manager.getAccessoryList() == null) return false;
+        return true;
     }
 
     public void cleanUp(){
@@ -123,7 +138,7 @@ public class UAccessory extends BroadcastReceiver {
 
 
     @Override
-    public void onReceive(Context context, Intent intent) {
+    public synchronized void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
         MainActivity.DEBUG_VIEW.printConsole("Got intent: " + intent);
         if(action.compareTo(USB_ACTION) == 0){
@@ -133,19 +148,11 @@ public class UAccessory extends BroadcastReceiver {
                     hasPermission = true;
                     Log.d("UAccessory", "permission gained for accessory " + accessory);
                     MainActivity.DEBUG_VIEW.printConsole("Gained Permissions " + accessory);
-                    pfd = manager.openAccessory(accessory);
-                    if(pfd != null) {
-                        isOpen = true;
-                        inputStream = new FileInputStream(pfd.getFileDescriptor());
-                        outputStream = new FileOutputStream(pfd.getFileDescriptor());
-                        try {
-                            startIO();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                            MainActivity.DEBUG_VIEW.printConsole("Failed to Start IO: \n " + e.toString());
-                        }
-                    }else{
-                        MainActivity.DEBUG_VIEW.printConsole("PFD is null");
+                    try {
+                        startIO();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        MainActivity.DEBUG_VIEW.printConsole("Failed to Start IO: \n " + e.toString());
                     }
                 }
             }
@@ -175,12 +182,19 @@ public class UAccessory extends BroadcastReceiver {
     public synchronized void startIO() throws IOException {
         if(isIO) return;
         isIO = true;
-        packetRead = new byte[packetSize + headerSize];
-        packetRead = new byte[packetSize + headerSize];
+        pfd = manager.openAccessory(accessory);
+        if(pfd != null) {
+            isOpen = true;
+            inputStream = new FileInputStream(pfd.getFileDescriptor());
+            outputStream = new FileOutputStream(pfd.getFileDescriptor());
+        }else{
+            MainActivity.DEBUG_VIEW.printConsole("PFD is null");
+        }
+        packetRead = new byte[packetSize];
         packetReadBB = ByteBuffer.wrap(packetRead);
-        packetWrite = new byte[packetSize + headerSize];
+        packetWrite = new byte[WRITE_PACKET_SIZE];
         packetWriteBB = ByteBuffer.wrap(packetWrite);
-        if(!handshake())return;
+        if(handshake()) listener.onIOStarted();
         //new Thread(new ReadRunnable(),"Accessory Read Thread").start();
     }
 
@@ -190,6 +204,11 @@ public class UAccessory extends BroadcastReceiver {
     public synchronized void endIO() throws IOException {
         sendData(TYPE_CLS,null,0); //tells accessory that you are ending communications`
         isIO = false;
+        if(pfd!=null) {
+            inputStream.close();
+            outputStream.close();
+            pfd.close();
+        }
     }
 
 
@@ -198,9 +217,10 @@ public class UAccessory extends BroadcastReceiver {
     }
 
     private boolean handshake() throws IOException {
-        byte[] writeBuffer = new byte[32];
+        byte[] writeBuffer = new byte[1024];
         byte[] readBuffer = new byte[1024];
         ByteBuffer byteBuffer = ByteBuffer.wrap(writeBuffer);
+
         byteBuffer.asIntBuffer().put(0, 1);
         byteBuffer.asIntBuffer().put(1, packetSize);
         outputStream.write(writeBuffer);
@@ -223,24 +243,17 @@ public class UAccessory extends BroadcastReceiver {
         MainActivity.DEBUG_VIEW.printConsole("Successfull handshake, Endianess is " + sameEndianess);
         return true;
     }
-    /**
-     * Thread safe call
-     * Puts the data into a que of pending data transfers
-     * @param data data to be send
-     * @param length length of data that needs to be sent
-     */
 
     public synchronized void sendData(byte[] data, int length){
         sendData(TYPE_DATA,data,length);
     }
-
 
     private void sendData(int type, byte[] data, int length){
         try {
             if(outputStream!=null) {
                 packetWriteBB.asIntBuffer().put(type);
                 if(data!=null){
-                    System.arraycopy(data,0,packetWrite,headerSize,data.length);
+                    System.arraycopy(data,0,packetWrite,4,data.length - 4);
                 }
                 outputStream.write(packetWrite);
                 outputStream.flush();
@@ -254,27 +267,5 @@ public class UAccessory extends BroadcastReceiver {
 
     public void setDataReadListener(UAccessoryStatusListener listener){
         this.listener = listener;
-    }
-
-    private class ReadRunnable implements Runnable{
-        @Override
-        public void run() {
-            MainActivity.DEBUG_VIEW.printConsole("Starting Read Thread");
-            if(listener!=null){
-                listener.onIOStarted();
-            }
-            while (isIO){
-                try {
-                    if(inputStream.available() > 0) {
-                        int readBytes = inputStream.read(packetRead);
-                    }
-                    listener.onDataRead(packetRead);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    MainActivity.DEBUG_VIEW.printConsole(e.toString());
-                }
-
-            }
-        }
     }
 }

@@ -30,7 +30,14 @@ int openUinput(){
 	if(res < 0) return 1;
 	res =ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN);	
 	if(res < 0) return 1;
-	
+	res = ioctl(uinput_fd, UI_SET_EVBIT, EV_REL);
+   	if(res < 0) return 1;
+    res = ioctl(uinput_fd, UI_SET_RELBIT, REL_X);
+	if(res < 0) return 1;
+	res = ioctl(uinput_fd, UI_SET_RELBIT, REL_Y);
+	if(res < 0) return 1;
+
+
 	unsigned char enabled_key;
 	int converted_keycode;
 	for(enabled_key = 0; enabled_key < 255; enabled_key++){
@@ -259,5 +266,21 @@ int getKeyCode(unsigned char key){
 }
 
 void sendMouse(int dx, int dy){
-
+	struct input_event ev;
+	memset(&ev, 0, sizeof(struct input_event));
+    ev.type = EV_REL;
+    ev.code = REL_X;
+    ev.value = dx;
+	write(uinput_fd, &ev, sizeof(struct input_event));
+    memset(&ev, 0, sizeof(struct input_event));
+    ev.type = EV_REL;
+    ev.code = REL_Y;
+    ev.value = dy;
+    write(uinput_fd, &ev, sizeof(struct input_event));
+    memset(&ev, 0, sizeof(struct input_event));
+    ev.type = EV_SYN;
+    ev.code = 0;
+    ev.value = 0;
+    write(uinput_fd, &ev, sizeof(struct input_event));
+    usleep(1500);    
 };

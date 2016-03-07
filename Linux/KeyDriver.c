@@ -22,6 +22,9 @@
 #include "UsbDevice.h"
 #include "Daemon.h"
 
+#define KEY_EVENT 1
+#define MOUSE_MOVE_EVENT 2
+#define MOUSE_CLICK_EVENT 3
 //incase of usb.h is missing do the following
 // sudo apt-get install libsubs-dev
 
@@ -33,14 +36,44 @@ void daemonMain(int pid){
 
 void onDataRead(int dev_id, char* data){
 	int* recieved_data = (int*)data;
-	printf("Key Pressed: %04x \n", *recieved_data);
+	printf("Key Pressed: %04x \n", *(recieved_data + 1) );
 	char pressedKey;
+	int dx;
+	int dy;
+	char mode;
 	if(android_device_get_device_id(dev_id)->endianess == SAME){
-		pressedKey = data[0];
+		mode = data[0];
+		pressedKey = data[4];
+		dx = recieved_data[1];
+		dy = recieved_data[2];
 	}else{
-		pressedKey = data[3];
+		mode = data[3];
+		pressedKey = data[7];
+		char* dx_char = &dx;
+		char* dy_char = &dy;
+
+		dx_char[0] = data[7];
+		dx_char[1] = data[6];
+		dx_char[2] = data[5];
+		dx_char[3] = data[4];
+
+		dy_char[0] = data[11];
+		dy_char[1] = data[10];
+		dy_char[2] = data[9];
+		dy_char[3] = data[8];
+
 	}
-	keyPress(pressedKey);
+	switch(mode){
+		case KEY_EVENT:
+			keyPress(pressedKey);
+			break;
+		case MOUSE_MOVE_EVENT:
+			sendMouse(dx,dy);
+			break;
+		case MOUSE_CLICK_EVENT:
+		break;
+	}
+	
 };
 
 void onAndroidConnected(int dev_id){};
@@ -50,8 +83,6 @@ void onAndroidTransferStateChanged(int dev_id, int new_state){};
 
 
 int main(){
-	
-
 	openUinput();
 	android_device_create_context();
 	AndroidDeviceCallbacks callbacks;
@@ -62,8 +93,6 @@ int main(){
 
 	int dev_id = android_device_reg(4046,20923);
 	android_device_set_callbacks(dev_id,callbacks);
-
-
 
 	while(1){
 		android_device_poll_events();

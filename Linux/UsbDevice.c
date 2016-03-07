@@ -21,7 +21,6 @@
 #define TYPE_DATA 2
 #define TYPE_CLS 3
 
-
 static void error(int code);
 static int detatch_kernel_driver_error(int result);
 static int claim_interface_error(int error);
@@ -101,22 +100,16 @@ int android_device_reg(int vid, int pid){
 
 void android_device_read_thread(int dev_id){
 	AndroidDevice* dev = devices[dev_id];
-	char* packet = NULL;
-	int packet_size_real = 0;
+	char* packet = malloc(READ_PACKET_SIZE);
 	int read_bytes;
 	int packet_type;
 	int read_result;
 	while(dev->conncetion_status == CONNECTION_STATUS_CONNECTED){
 		if(dev->transfer_status == TRASNFER_STATUS_HANDSHAKE){
 			android_device_handshake(dev_id);
-			if(packet != NULL){
-				free(packet);
-			}
-			packet_size_real = dev->packet_size + sizeof(int);
-			packet = malloc(packet_size_real);
 		}else if(dev->transfer_status == TRANSFER_STATUS_WAITING){
-			memset(packet,0,packet_size_real);
-			read_result = libusb_bulk_transfer(dev->device_handle,IN,packet,packet_size_real,&read_bytes,0);
+			memset(packet,0,READ_PACKET_SIZE);
+			read_result = libusb_bulk_transfer(dev->device_handle,IN,packet,READ_PACKET_SIZE,&read_bytes,0);
 			switch(read_result){
 		    	case 0: 
 		    		printf("Successfully read %d bytes \n", read_bytes); break; 
@@ -159,10 +152,10 @@ void android_device_read_thread(int dev_id){
 int android_device_handshake(int dev_id){
 	AndroidDevice* dev = devices[dev_id];
 	libusb_device_handle* handle = dev->device_handle;
-	unsigned char io_buffer[32];
+	unsigned char io_buffer[1024];
 	int read_bytes;
-	memset(io_buffer,0,32);
-	int err = libusb_bulk_transfer(handle,IN,io_buffer,32,&read_bytes,5000);
+	memset(io_buffer,0,1024);
+	int err = libusb_bulk_transfer(handle,IN,io_buffer,1024,&read_bytes,5000);
 	if(err){
 		error(err);
 		printf("Timed out Handshake Read\n");
@@ -179,9 +172,9 @@ int android_device_handshake(int dev_id){
 	}
 	printf("Device Packet Size: %d\n",packet_size);	
 	dev->packet_size = packet_size;
-
 	io_buffer_int[0] = 1;
-	err = android_device_send_data(dev_id,io_buffer,32);
+	io_buffer_int[1] = READ_PACKET_SIZE;
+	err = android_device_send_data(dev_id,io_buffer,1024);
 	if(err){
 		printf("Failed Handshake Responce\n");
 		return 0;
@@ -306,7 +299,7 @@ int android_device_poll_events(){
 
 int android_device_send_data(int dev_id, unsigned char* data, int length){
 	int transferred_bytes;
-	int result = libusb_bulk_transfer(devices[dev_id]->device_handle,OUT,data,length,&transferred_bytes,1500);
+	int result = libusb_bulk_transfer(devices[dev_id]->device_handle,OUT,data,length,&transferred_bytes,7500);
 	switch(result){
 	    case 0: 
 	    	printf("Successfully transfered %d bytes \n", transferred_bytes); break; 

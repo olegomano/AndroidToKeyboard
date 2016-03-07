@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical" android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:focusable="false"
+    android:measureWithLargestChild="false"
+    android:touchscreenBlocksFocus="false"
+    android:focusableInTouchMode="false">
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="75dp"
+        android:background="#adc4e2"
+        android:backgroundTintMode="multiply"
+        android:backgroundTint="#82b1ff"
+        android:id="@+id/drawer_status_bar_parent">
+
+        <ImageView
+            android:paddingLeft="6dp"
+            android:paddingRight="6dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:layout_width="49dp"
+            android:layout_height="49dp"
+            android:id="@+id/drawer_connection_status_icon"
+            android:src="@drawable/usb_disconnected"
+            android:layout_gravity="center" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:text="Not Connected"
+            android:id="@+id/drawer_connection_status_text"
+            android:textSize="25dp"
+            android:autoText="false"
+            android:gravity="center_vertical"
+            android:paddingLeft="25dp" />
+
+    </LinearLayout>
+
+    <ListView
+        android:layout_width="346dp"
+        android:layout_height="wrap_content"
+        android:id="@+id/drawer_list_view" />
+
+</LinearLayout>
