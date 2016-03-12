@@ -3,6 +3,7 @@ package calibrationapp.spectoccular.com.keyboardtolinux.USBMode;
 import android.content.Context;
 import android.view.View;
 
+import calibrationapp.spectoccular.com.keyboardtolinux.AppSettings;
 import calibrationapp.spectoccular.com.keyboardtolinux.UAccessory;
 
 /**
@@ -12,9 +13,11 @@ public abstract class USBMode {
     protected UAccessory device;
     protected boolean isCurrent = false;
     protected Context mContext;
-    public USBMode(UAccessory mDev, Context context){
+    protected AppSettings settings;
+    public USBMode(AppSettings apps, UAccessory mDev, Context context){
         device = mDev;
         mContext = context;
+        settings = apps;
     }
 
     public void onSelected(){
@@ -25,5 +28,10 @@ public abstract class USBMode {
         isCurrent = false;
     }
 
+    public void onDataRecieved(byte[] data){
+
+    }
+
     public abstract View getView();
+
 }

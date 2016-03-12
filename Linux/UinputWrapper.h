@@ -23,13 +23,15 @@
 #include <fcntl.h>   
 
 
-int openUinput();
-void closeUinput();
+int uinput_open();
+void uinput_close();
 
-void keyPress(char key);
-void sendKeyDown(char key);
-void sendKeyUp(char key);
-void sendMouse(int dx, int dy);
-int getKeyCode(unsigned char key);
+void uninput_key_press(char key);
+void uinput_key_down(char key);
+void uinput_key_up(char key);
+void uinput_mouse_move(int dx, int dy);
+void uinput_mouse_click();
+void uinput_mouse_scroll(int ds);
+int  getKeyCode(unsigned char key);
 
 #endif

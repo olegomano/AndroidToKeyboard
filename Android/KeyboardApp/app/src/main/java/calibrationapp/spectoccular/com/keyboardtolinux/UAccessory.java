@@ -169,11 +169,8 @@ public class UAccessory extends BroadcastReceiver {
         return packetSize;
     }
 
-    public void setPacketSize(int pSize){
-        if(!isIO){
-            return;
-        }
-        sendData(TYPE_CONF, null, 0);
+    public void setPacketSize(int pSize) {
+        packetSize = pSize;
     }
 
     /**

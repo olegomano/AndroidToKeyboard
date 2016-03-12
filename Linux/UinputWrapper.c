@@ -15,26 +15,53 @@
     along with KeyboardToLinux.  If not, see <http://www.gnu.org/licenses/>.
 */
     
-#include "Keyboard.h"
+#include "UinputWrapper.h"
 
 static volatile int uinput_fd;
 int key_transaltion_table[256];
+struct input_event down_event;
+struct input_event up_event;
+struct input_event syn_event;
 
-int openUinput(){
+	
+int uinput_open(){
 	uinput_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
 	if(uinput_fd < 0){
 		return 1;
 	}
+
+	memset(&down_event, 0, sizeof(down_event));
+	down_event.type = EV_KEY;
+	down_event.value = 1;
+
+	memset(&up_event, 0, sizeof(up_event));
+	up_event.type = EV_KEY;
+	up_event.value = 0;
+	
+	memset(&syn_event, 0, sizeof(syn_event));
+	syn_event.type = EV_SYN;
+	syn_event.code = SYN_REPORT;
+	syn_event.value = 0;
+
+	
+
 	int res;
-	res = ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY);
+	res = ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY); //enable key events
 	if(res < 0) return 1;
 	res =ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN);	
 	if(res < 0) return 1;
-	res = ioctl(uinput_fd, UI_SET_EVBIT, EV_REL);
+
+	res = ioctl(uinput_fd, UI_SET_EVBIT, EV_REL); //enable mouse events
    	if(res < 0) return 1;
-    res = ioctl(uinput_fd, UI_SET_RELBIT, REL_X);
+    res = ioctl(uinput_fd, UI_SET_RELBIT, REL_X); //enable mouse event x
 	if(res < 0) return 1;
-	res = ioctl(uinput_fd, UI_SET_RELBIT, REL_Y);
+	res = ioctl(uinput_fd, UI_SET_RELBIT, REL_Y); //enable mouse event y
+	if(res < 0) return 1;
+	res = ioctl(uinput_fd, UI_SET_RELBIT, REL_WHEEL); //enable wheel scrolling
+	if(res < 0) return 1;
+	res = ioctl(uinput_fd,UI_SET_KEYBIT,BTN_LEFT);//enable left click 
+	if(res < 0) return 1;
+	res = ioctl(uinput_fd,UI_SET_KEYBIT,BTN_RIGHT);//enable right click
 	if(res < 0) return 1;
 
 
@@ -64,7 +91,7 @@ int openUinput(){
 	return 0;
 };
 
-void closeUinput(){
+void uinput_close(){
 	ioctl(uinput_fd, UI_DEV_DESTROY);
 }
 
@@ -100,64 +127,88 @@ void shiftDown(){
 	usleep(1500);
 }
 
-
-void sendKeyDown(char key){
+void uinput_mouse_click(){
+	printf("Clicking\n");
 	struct input_event ev;
 	memset(&ev, 0, sizeof(ev));
-	int key_code = key_transaltion_table[key];
-	if(key_code == 0) return;
-	if(key_code < 0){
-		shiftDown();
-		key_code = -key_code;
-	}
+	
 	ev.type = EV_KEY;
-	ev.code = key_code;
+	ev.code = BTN_LEFT;
 	ev.value = 1;
-	int res = write(uinput_fd, &ev, sizeof(ev));
-	printf("Sending Key Down event for %d\n",ev.code );
+	write(uinput_fd, &ev, sizeof(ev));
 	usleep(1500);
+
+	ev.type = EV_KEY;
+	ev.code = BTN_LEFT;
+	ev.value = 0;
+	write(uinput_fd, &ev, sizeof(ev));
 	
 	ev.type = EV_SYN;
-	ev.code = SYN_REPORT;
+	ev.code = ev.type = SYN_REPORT;
 	ev.value = 0;
-	res = write(uinput_fd, &ev, sizeof(ev));
-	if(res < 0 )printf("Error sending Key Down\n");
+	write(uinput_fd, &ev, sizeof(ev));
+	usleep(1500);
 }
 
-void sendKeyUp(char key){
+
+void uinput_mouse_scroll(int ds){
 	struct input_event ev;
 	memset(&ev, 0, sizeof(ev));
-	int key_code = key_transaltion_table[key];
-	ev.type = EV_KEY;
-	ev.code = key_code;
-	if(ev.code == 0) return;
-	if(key_code < 0){
-		ev.code = -key_code;
+	ev.type = EV_REL;
+	ev.code = REL_WHEEL; 
+	ev.value = ds;
+   	write(uinput_fd, &ev, sizeof(ev));
+	write(uinput_fd, &syn_event, sizeof(syn_event) );
+	usleep(1500);	
+}
+
+void uinput_key_press(unsigned char key){
+	int uinput_keycode = key_transaltion_table[key];
+	int shift = 0;
+	if(uinput_keycode < 0){
+		down_event.code = KEY_LEFTSHIFT;
+		write(uinput_fd,&down_event,sizeof(down_event));
+		write(uinput_fd,&syn_event,sizeof(syn_event));
+		uinput_keycode = -uinput_keycode;
 	}
-	ev.value = 0 ;
-	int res = write(uinput_fd, &ev, sizeof(ev));
-	printf("Sending Key Up event for %d\n",ev.code );
-	usleep(1500);
-	
-	ev.type = EV_SYN;
-	ev.code = SYN_REPORT;
-	ev.value = 0;
-	res = write(uinput_fd, &ev, sizeof(ev));
-	if(key_code < 0){
-		shiftUp();
-	}
-	if(res < 0 )printf("Error sending Key UP\n");
+	down_event.code = uinput_keycode;
+	up_event.code = uinput_keycode;
+	write(uinput_fd,&down_event,sizeof(down_event));
+	write(uinput_fd,&up_event,sizeof(up_event));
+	write(uinput_fd,&syn_event,sizeof(syn_event));
+	usleep(1500);	
+}
+
+
+void uinput_mouse_move(int dx, int dy){
+	struct input_event ev;
+	memset(&ev, 0, sizeof(struct input_event));
+    ev.type = EV_REL;
+    ev.code = REL_X;
+    ev.value = dx;
+	write(uinput_fd, &ev, sizeof(struct input_event));
+    memset(&ev, 0, sizeof(struct input_event));
+    ev.type = EV_REL;
+    ev.code = REL_Y;
+    ev.value = dy;
+    write(uinput_fd, &ev, sizeof(struct input_event));
+    memset(&ev, 0, sizeof(struct input_event));
+    ev.type = EV_SYN;
+    ev.code = 0;
+    ev.value = 0;
+    write(uinput_fd, &ev, sizeof(struct input_event));
+    usleep(1500);    
 };
 
-void keyPress(char key){
-	sendKeyDown(key);
-	sendKeyUp(key);
-}
 
 
 int getKeyCode(unsigned char key){
 	int uinput_keycode;
 	switch(key){
+		case 0 : uinput_keycode = KEY_BACKSPACE; break;
+		case 10: uinput_keycode = KEY_ENTER; break;
+		case 14: uinput_keycode = KEY_LEFTSHIFT; break;
+
 		case 'a': uinput_keycode = KEY_A; break;
 		case 'b': uinput_keycode = KEY_B; break;
 		case 'c': uinput_keycode = KEY_C; break;
@@ -233,10 +284,6 @@ int getKeyCode(unsigned char key){
 		case ')': uinput_keycode = -KEY_0; break;
 
 		case ' ': uinput_keycode = KEY_SPACE; break;
-		case 14:  uinput_keycode = KEY_LEFTSHIFT; break;
-		case 0:  uinput_keycode = KEY_BACKSPACE; break;
-		case 10:   uinput_keycode = KEY_ENTER; break;
-
 		case '=': uinput_keycode = KEY_KPPLUS; break;
 		case '-': uinput_keycode = KEY_KPMINUS; break;
 		case '\\': uinput_keycode = KEY_BACKSLASH; break;
@@ -264,23 +311,3 @@ int getKeyCode(unsigned char key){
 	}
 	return uinput_keycode;
 }
-
-void sendMouse(int dx, int dy){
-	struct input_event ev;
-	memset(&ev, 0, sizeof(struct input_event));
-    ev.type = EV_REL;
-    ev.code = REL_X;
-    ev.value = dx;
-	write(uinput_fd, &ev, sizeof(struct input_event));
-    memset(&ev, 0, sizeof(struct input_event));
-    ev.type = EV_REL;
-    ev.code = REL_Y;
-    ev.value = dy;
-    write(uinput_fd, &ev, sizeof(struct input_event));
-    memset(&ev, 0, sizeof(struct input_event));
-    ev.type = EV_SYN;
-    ev.code = 0;
-    ev.value = 0;
-    write(uinput_fd, &ev, sizeof(struct input_event));
-    usleep(1500);    
-};

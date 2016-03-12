@@ -18,13 +18,14 @@
 #include <pthread.h>
 #include <usb.h>
 #include <libusb-1.0/libusb.h>
-#include "Keyboard.h"
+#include "UinputWrapper.h"
 #include "UsbDevice.h"
 #include "Daemon.h"
 
 #define KEY_EVENT 1
 #define MOUSE_MOVE_EVENT 2
 #define MOUSE_CLICK_EVENT 3
+#define MOUSE_SCROLL_EVENT 4
 //incase of usb.h is missing do the following
 // sudo apt-get install libsubs-dev
 
@@ -65,25 +66,39 @@ void onDataRead(int dev_id, char* data){
 	}
 	switch(mode){
 		case KEY_EVENT:
-			keyPress(pressedKey);
+			uinput_key_press(pressedKey);
 			break;
 		case MOUSE_MOVE_EVENT:
-			sendMouse(dx,dy);
+			uinput_mouse_move(dx,dy);
 			break;
 		case MOUSE_CLICK_EVENT:
-		break;
+			printf("Click\n");
+			uinput_mouse_click();
+			break;
+		case MOUSE_SCROLL_EVENT:
+			printf("Scroll %d\n",dx );
+			uinput_mouse_scroll(dx);
+			break;	
 	}
 	
 };
 
-void onAndroidConnected(int dev_id){};
-void onAndroidDisConnected(int dev_id){};
-void onAndroidTransferStateChanged(int dev_id, int new_state){};
+void onAndroidConnected(int dev_id){
+
+};
+
+void onAndroidDisConnected(int dev_id){
+
+};
+
+void onAndroidTransferStateChanged(int dev_id, int new_state){
+
+};
 
 
 
 int main(){
-	openUinput();
+	uinput_open();
 	android_device_create_context();
 	AndroidDeviceCallbacks callbacks;
 	callbacks.onDataRead = onDataRead;

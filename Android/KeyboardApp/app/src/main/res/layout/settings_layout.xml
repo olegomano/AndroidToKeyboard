@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical" android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingLeft="10dp"
+    android:paddingRight="10dp"
+    android:background="#eceff1">
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="4dp"
+        android:paddingTop="5dp"
+        android:showDividers="end">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Settings"
+            android:id="@+id/textView2"
+            android:textSize="32dp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:text="Drag Speed"
+        android:textSize="18dp"
+        android:id="@+id/textView"
+        android:paddingTop="5dp"
+        android:paddingBottom="0dp"
+        android:textStyle="bold"
+        android:paddingLeft="10dp" />
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:weightSum="1"
+        android:paddingBottom="5dp"
+        android:paddingLeft="10dp">
+
+        <SeekBar
+            android:layout_width="251dp"
+            android:layout_height="wrap_content"
+            android:id="@+id/settings_drag_seekbar"
+            android:paddingLeft="45dp"
+            android:layout_weight="0.70"
+            android:max="100"
+            android:progress="0" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:text="10"
+            android:id="@+id/settings_drag_value"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:text="Scroll Speed"
+        android:id="@+id/textView3"
+        android:paddingTop="5dp"
+        android:paddingBottom="0dp"
+        android:textStyle="bold"
+        android:textSize="18dp"
+        android:paddingLeft="10dp" />
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:weightSum="1"
+        android:paddingBottom="8dp"
+        android:paddingLeft="10dp">
+
+        <SeekBar
+            android:layout_width="251dp"
+            android:layout_height="wrap_content"
+            android:id="@+id/settings_scroll_seekbar"
+            android:max="100"
+            android:paddingLeft="25dp"
+            android:layout_weight="0.70"
+            android:progress="0"
+            />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:text="10"
+            android:id="@+id/settings_scroll_value"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingLeft="15dp"
+        android:paddingRight="15dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:text="Width:"
+            android:id="@+id/textView5"
+            android:textSize="14dp" />
+
+        <EditText
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:ems="10"
+            android:id="@+id/editText"
+            android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:text="Height:"
+            android:id="@+id/textView6"
+            android:textSize="14dp" />
+
+        <EditText
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:ems="10"
+            android:id="@+id/editText2"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+</LinearLayout>

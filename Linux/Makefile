@@ -13,8 +13,8 @@ KeyDriver.o: KeyDriver.c
 UsbDevice.o: UsbDevice.c 
 	gcc -c UsbDevice.c -o UsbDevice.o 
 
-Keyboard.o: Keyboard.c
-	gcc -c Keyboard.c -o Keyboard.o 
+Keyboard.o: UinputWrapper.c
+	gcc -c UinputWrapper.c -o Keyboard.o 
 
 link: KeyDriver.o UsbDevice.o Keyboard.o Daemon.o
 	gcc KeyDriver.o UsbDevice.o Keyboard.o Daemon.o -o KeyboardDriver -lusb-1.0 -lpthread

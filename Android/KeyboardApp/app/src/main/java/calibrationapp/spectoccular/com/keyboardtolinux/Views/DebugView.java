@@ -14,7 +14,7 @@
     You should have received a copy of the GNU General Public License
     along with KeyboardToLinux.  If not, see <http://www.gnu.org/licenses/>.
 */
-package calibrationapp.spectoccular.com.keyboardtolinux;
+package calibrationapp.spectoccular.com.keyboardtolinux.Views;
 
 import android.content.Context;
 import android.os.Handler;
@@ -28,6 +28,8 @@ import android.widget.TextView;
 import org.w3c.dom.Text;
 
 import java.util.Stack;
+
+import calibrationapp.spectoccular.com.keyboardtolinux.R;
 
 /**
  * Created by Oleg Tolstov on 9:21 PM, 1/19/16. KeyboardToLinux
@@ -44,7 +46,7 @@ public class DebugView implements Runnable{
 
     public DebugView(Context context){
         mainThreadHandler = new Handler(Looper.getMainLooper());
-        rootView = View.inflate(context,R.layout.console_layout,null);
+        rootView = View.inflate(context, R.layout.console_layout,null);
      //   errorView = (ListView) rootView.findViewById(R.id.debug_msgs);
         outputConsole = (TextView) rootView.findViewById(R.id.console);
     }
