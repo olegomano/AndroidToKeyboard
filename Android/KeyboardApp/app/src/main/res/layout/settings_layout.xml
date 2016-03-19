@@ -12,7 +12,15 @@
         android:layout_height="wrap_content"
         android:paddingBottom="4dp"
         android:paddingTop="5dp"
-        android:showDividers="end">
+        android:showDividers="end"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="35dp"
+            android:id="@+id/imageView"
+            android:src="@drawable/settings"
+            android:padding="0dp" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -119,7 +127,7 @@
             android:layout_height="wrap_content"
             android:inputType="numberDecimal"
             android:ems="10"
-            android:id="@+id/editText"
+            android:id="@+id/settings_fb_w"
             android:layout_weight="1" />
 
         <TextView
@@ -135,7 +143,7 @@
             android:layout_height="wrap_content"
             android:inputType="numberDecimal"
             android:ems="10"
-            android:id="@+id/editText2"
+            android:id="@+id/settings_fb_h"
             android:layout_weight="1" />
     </LinearLayout>
 

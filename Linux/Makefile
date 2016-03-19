@@ -1,14 +1,14 @@
 
 all: link
 
-debug: KeyDriver.o UsbDevice.o Keyboard.o Daemon.o
-	gcc KeyDriver.o UsbDevice.o Keyboard.o Daemon.o -o KeyboardDriver -lusb-1.0 -lpthread -g
+debug: Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o
+	gcc Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o -g -o KeyboardDriver -lusb-1.0 -lpthread -lX11 -lXext 
 
-Daemon.o: Daemon.c
-	gcc -c Daemon.c -o Daemon.o
+link: Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o
+	gcc Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o -o KeyboardDriver -lusb-1.0 -lpthread -lX11 -lXext 
 
-KeyDriver.o: KeyDriver.c  
-	gcc -c KeyDriver.c -o KeyDriver.o 
+Main.o: Main.c  
+	gcc -c Main.c -o Main.o 
 
 UsbDevice.o: UsbDevice.c 
 	gcc -c UsbDevice.c -o UsbDevice.o 
@@ -16,14 +16,18 @@ UsbDevice.o: UsbDevice.c
 Keyboard.o: UinputWrapper.c
 	gcc -c UinputWrapper.c -o Keyboard.o 
 
-link: KeyDriver.o UsbDevice.o Keyboard.o Daemon.o
-	gcc KeyDriver.o UsbDevice.o Keyboard.o Daemon.o -o KeyboardDriver -lusb-1.0 -lpthread
+FrameBuffer.o: FrameBuffer.c
+	gcc -c FrameBuffer.c -o FrameBuffer.o
+
+X11Wrapper.o: X11Wrapper.c
+	gcc -c X11Wrapper.c -o X11Wrapper.o
 
 clean:
-	rm -f KeyDriver.o
+	rm -f Main.o
 	rm -f UsbDevice.o
 	rm -f Keyboard.o
-	rm -f Daemon.o
+	rm -f FrameBuffer.o
+	rm -f X11Wrapper.o
 
 KeyboardDriver.o: KeyboardDriver.cpp
 	g++ -std=c++11 KeyboardDriver.cpp -lusb-1.0 -lpthread

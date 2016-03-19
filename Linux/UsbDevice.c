@@ -21,6 +21,10 @@
 #define TYPE_DATA 2
 #define TYPE_CLS 3
 
+#define PACKET_HANDHSAKE 1
+#define PACKET_DATA 2
+#define PACKET_CLOSE 3    
+
 static void error(int code);
 static int detatch_kernel_driver_error(int result);
 static int claim_interface_error(int error);
@@ -65,6 +69,7 @@ int android_device_reg(int vid, int pid){
 	n_dev->product_id = pid;
 	n_dev->conncetion_status = CONNECTION_STATUS_DISCONNECTED;
 	n_dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
+	n_dev->packet = NULL;
 	
 	int m_id = alloced_device_count;
 	n_dev->dev_id = m_id;
@@ -99,6 +104,79 @@ int android_device_reg(int vid, int pid){
 }
 
 void android_device_read_thread(int dev_id){
+	AndroidDevice* device = devices[dev_id];
+	char* read_packet = malloc(READ_PACKET_SIZE);
+	int read_bytes;
+	char packet_type;
+	int  read_err;
+	while(device->conncetion_status == CONNECTION_STATUS_CONNECTED){
+		memset(read_packet,0,READ_PACKET_SIZE);
+		read_err = libusb_bulk_transfer(device->device_handle,IN,read_packet,READ_PACKET_SIZE,&read_bytes,0);
+		if(read_err!=0){ //there is an error reading
+			switch(read_err){
+				case LIBUSB_ERROR_TIMEOUT: 
+    				printf("ERROR: read timed out \n"); break; 
+    			case LIBUSB_ERROR_PIPE: 
+    				printf("ERROR: endpoint halted \n"); break;
+    			case LIBUSB_ERROR_OVERFLOW: 
+    				printf("ERROR: overflow \n"); break;
+    			case LIBUSB_ERROR_NO_DEVICE: 
+    				printf("ERROR: decice disconnected \n"); break; 
+			}
+			continue;
+		}
+		int* read_packet_int = (int*)read_packet;
+		printf("%08x %08x %08x %08x\n", read_packet_int[0],read_packet_int[1],read_packet_int[2],read_packet_int[3]);
+		packet_type = read_packet[0];
+		printf("Packet Type: %d\n", packet_type);
+		if(device->transfer_status == TRASNFER_STATUS_HANDSHAKE){
+			if(packet_type != PACKET_HANDHSAKE){
+				printf("Error: protocol mismatch, Expecting handshake request\n");
+				continue;
+			}else{
+				//do handshake
+				printf("Handshake in Progress\n");
+				int* packet_payload = read_packet + sizeof(int);
+				int  controll_int = packet_payload[0];
+				int  packet_size;
+				printf("Controll Int %08x\n", controll_int);
+				printf("Packet Size: %d\n",packet_payload[1]);
+				if(controll_int == 1){
+					device->endianess = SAME;
+					packet_size = packet_payload[1];
+				}else{
+					device->endianess = OPPOSITE;
+					android_device_swap_endianess( (char*) (&packet_payload[1]) , (char*)(&packet_size), sizeof(int) );
+				}
+				if(device->packet != NULL){
+					free(device->packet);
+				}
+
+				device->packet_size = packet_size;
+				device->packet = malloc(packet_size);
+				char handshake_reply[1024];
+				int* handshake_reply_int = (int*)handshake_reply;
+				handshake_reply_int[0] = 1;
+				handshake_reply_int[1] = READ_PACKET_SIZE;
+				if(!android_device_send_data(dev_id,handshake_reply,1024)){
+					printf("Handshake Success\n");
+					android_device_print_device(dev_id);
+					device->transfer_status = TRANSFER_STATUS_WAITING;
+				};
+
+			}
+		}else{
+			switch(packet_type){
+				case PACKET_DATA: device->callback.onDataRead(dev_id,read_packet + sizeof(char) );  break;
+				case PACKET_CLOSE: device->transfer_status = TRASNFER_STATUS_HANDSHAKE; break;
+			}
+		}
+
+	}
+}
+
+/*
+void android_device_read_thread(int dev_id){
 	AndroidDevice* dev = devices[dev_id];
 	char* packet = malloc(READ_PACKET_SIZE);
 	int read_bytes;
@@ -129,7 +207,10 @@ void android_device_read_thread(int dev_id){
 				android_device_swap_endianess(packet,&packet_type,4);
 			}
 			switch(packet_type){
-				case TYPE_CONF: break;
+				case TYPE_CONF: 
+					printf("Config Packet\n");
+					dev->callback.onControlMessage(dev->dev_id,packet + sizeof(int));
+					break;
 				case TYPE_CLS:
 					printf("Cancle Packet\n"); 
 					dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
@@ -143,6 +224,7 @@ void android_device_read_thread(int dev_id){
 		}
 	}
 }
+*/
 /*
 			Handshake Format is 32 bytes (4 ints)
       Cntrl Int   Packet Size   Extra Data  Extra Data
@@ -172,6 +254,7 @@ int android_device_handshake(int dev_id){
 	}
 	printf("Device Packet Size: %d\n",packet_size);	
 	dev->packet_size = packet_size;
+	dev->packet = malloc(packet_size);
 	io_buffer_int[0] = 1;
 	io_buffer_int[1] = READ_PACKET_SIZE;
 	err = android_device_send_data(dev_id,io_buffer,1024);
@@ -313,6 +396,28 @@ int android_device_send_data(int dev_id, unsigned char* data, int length){
     		printf("ERROR: decice disconnected \n"); break; 
 	}	
 	return result;
+}
+
+int android_device_send_data_buffer(int dev_id, int length){
+	AndroidDevice* dev = devices[dev_id];
+	int transferred_bytes;
+	if(length > dev->packet_size){
+		printf("Error sending, length larger than packet size\n");
+	}
+	int result = libusb_bulk_transfer(dev->device_handle,OUT,dev->packet,length,&transferred_bytes,7500);
+	switch(result){
+	    case 0: 
+	    	printf("Successfully transfered %d bytes \n", transferred_bytes); break; 
+    	case LIBUSB_ERROR_TIMEOUT: 
+    		printf("ERROR: transfer timed out \n"); break; 
+    	case LIBUSB_ERROR_PIPE: 
+    		printf("ERROR: endpoint halted \n"); break;
+    	case LIBUSB_ERROR_OVERFLOW: 
+    		printf("ERROR: overflow \n"); break;
+    	case LIBUSB_ERROR_NO_DEVICE: 
+    		printf("ERROR: decice disconnected \n"); break; 
+	}	
+	return result;	
 }
 
 int android_device_set_callbacks(int dev_id, AndroidDeviceCallbacks callback){

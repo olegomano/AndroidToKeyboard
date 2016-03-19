@@ -34,11 +34,15 @@ import java.nio.ByteBuffer;
 /**
  * Created by Oleg Tolstov on 8:46 PM, 1/19/16. KeyboardToLinux
  */
-public class UAccessory extends BroadcastReceiver {
+public class UAccessory extends BroadcastReceiver implements Runnable{
     public static final int WRITE_PACKET_SIZE = 32;
-    private static final int TYPE_CONF = 1;
-    private static final int TYPE_DATA = 2;
-    private static final int TYPE_CLS = 3;
+    public static final int INTERNAL_HEADER_SIZE = 1;
+    public static final int WRITE_PACKET_SIZE_FREE = WRITE_PACKET_SIZE - INTERNAL_HEADER_SIZE;
+    private static final byte PACKET_HANDSHAKE = 1;
+    private static final byte PACKET_DATA = 2;
+    private static final byte PACKET_CLOSE = 3;
+
+
 
     public interface UAccessoryStatusListener {
         public void onDataRead(byte[] data);
@@ -54,14 +58,15 @@ public class UAccessory extends BroadcastReceiver {
     private volatile ByteBuffer packetWriteBB;
 
     private boolean sameEndianess = false;
-    private volatile FileInputStream inputStream;
-    private volatile FileOutputStream outputStream;
+    private volatile FileInputStream inputStream = null;
+    private volatile FileOutputStream outputStream = null;
     private volatile UAccessoryStatusListener listener;
     private ParcelFileDescriptor pfd;
 
     private volatile boolean hasPermission = false;
     private volatile boolean isOpen = false;
     private volatile boolean isIO = false;
+    private volatile Thread readThread;
 
     private PendingIntent mPermissionIntent;
     private IntentFilter mIntentFilter;
@@ -186,40 +191,63 @@ public class UAccessory extends BroadcastReceiver {
             outputStream = new FileOutputStream(pfd.getFileDescriptor());
         }else{
             MainActivity.DEBUG_VIEW.printConsole("PFD is null");
+            isOpen = false;
         }
         packetRead = new byte[packetSize];
         packetReadBB = ByteBuffer.wrap(packetRead);
         packetWrite = new byte[WRITE_PACKET_SIZE];
         packetWriteBB = ByteBuffer.wrap(packetWrite);
-        if(handshake()) listener.onIOStarted();
-        //new Thread(new ReadRunnable(),"Accessory Read Thread").start();
+        if(handshake()) {
+            listener.onIOStarted();
+            readThread = new Thread(this);
+            readThread.start();
+        }
     }
+
+
+    @Override
+    public void run() {
+        while(!readThread.isInterrupted()){
+            try {
+                inputStream.read(packetRead);
+                listener.onDataRead(packetRead);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
 
     /**
      * Kills read thread
      */
     public synchronized void endIO() throws IOException {
-        sendData(TYPE_CLS,null,0); //tells accessory that you are ending communications`
+        sendData(PACKET_CLOSE,null); //tells accessory that you are ending communications`
         isIO = false;
         if(pfd!=null) {
+            readThread.interrupt();
+            isOpen = false;
             inputStream.close();
             outputStream.close();
             pfd.close();
+            inputStream = null;
+            outputStream = null;
+            pfd = null;
         }
     }
-
+    public boolean getEndianess(){return sameEndianess;}
 
     public boolean isOpen(){
         return isOpen;
     }
 
     private boolean handshake() throws IOException {
-        byte[] writeBuffer = new byte[1024];
+        byte[] writeBuffer = new byte[32];
         byte[] readBuffer = new byte[1024];
         ByteBuffer byteBuffer = ByteBuffer.wrap(writeBuffer);
-
-        byteBuffer.asIntBuffer().put(0, 1);
-        byteBuffer.asIntBuffer().put(1, packetSize);
+        writeBuffer[0] = PACKET_HANDSHAKE;
+        byteBuffer.asIntBuffer().put(1, 2);
+        byteBuffer.asIntBuffer().put(2,packetSize);
         outputStream.write(writeBuffer);
         outputStream.flush();
 
@@ -241,16 +269,22 @@ public class UAccessory extends BroadcastReceiver {
         return true;
     }
 
-    public synchronized void sendData(byte[] data, int length){
-        sendData(TYPE_DATA,data,length);
+    /*
+    public synchronized void sendCntrlMsg(byte[] msg){
+        sendData(TYPE_CONF,msg);
+    }
+    */
+
+    public synchronized void sendData(byte[] data){
+        sendData(PACKET_DATA,data);
     }
 
-    private void sendData(int type, byte[] data, int length){
+    private void sendData(byte type, byte[] data){
         try {
             if(outputStream!=null) {
-                packetWriteBB.asIntBuffer().put(type);
+                packetWrite[0] = type;
                 if(data!=null){
-                    System.arraycopy(data,0,packetWrite,4,data.length - 4);
+                    System.arraycopy(data,1,packetWrite,1,31);
                 }
                 outputStream.write(packetWrite);
                 outputStream.flush();

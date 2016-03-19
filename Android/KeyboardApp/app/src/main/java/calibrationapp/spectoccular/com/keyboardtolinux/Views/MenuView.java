@@ -23,7 +23,7 @@ import calibrationapp.spectoccular.com.keyboardtolinux.USBMode.USBMode;
 /**
  * Created by Oleg Tolstov on 12:23 PM, 3/2/16. KeyboardToLinux
  */
-public class DrawerView extends ArrayAdapter<ListElement> implements AdapterView.OnItemClickListener {
+public class MenuView extends ArrayAdapter<ListElement> implements AdapterView.OnItemClickListener {
     public static final int CONNECTION_STATUS_CONNECTED = 1;
     public static final int CONNECTION_STATUS_DISCONNECTED = 2;
     private Context mContext;
@@ -45,7 +45,7 @@ public class DrawerView extends ArrayAdapter<ListElement> implements AdapterView
 
     }
     */
-    public DrawerView(Context context, ListElement[] elements){
+    public MenuView(Context context, ListElement[] elements){
         super(context, 0);
         addAll(elements);
         mContext = context;

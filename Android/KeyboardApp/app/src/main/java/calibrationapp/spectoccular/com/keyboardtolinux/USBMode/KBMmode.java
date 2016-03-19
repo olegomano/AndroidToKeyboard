@@ -17,17 +17,17 @@ import calibrationapp.spectoccular.com.keyboardtolinux.UAccessory;
 /**
  * Created by Oleg Tolstov on 3:11 PM, 3/4/16. KeyboardToLinux
  */
-public class KeyboardMouseMode extends USBMode implements View.OnTouchListener{
+public class KBMmode extends USBMode implements View.OnTouchListener{
     private static final int KEY_EVENT = 1;
     private static final int MOUSE_MOVE_EVENT = 2;
     private static final int MOUSE_CLICK_EVENT = 3;
     private static final int MOUSE_SCROLL_EVENT = 4;
     private LinearLayout mView;
 
-    byte[] sendDataBuffer = new byte[UAccessory.WRITE_PACKET_SIZE];
+    private byte[] sendDataBuffer = new byte[UAccessory.WRITE_PACKET_SIZE];
     private ByteBuffer bb;
 
-    public KeyboardMouseMode(AppSettings settings,UAccessory mDev, Context context) {
+    public KBMmode(AppSettings settings, UAccessory mDev, Context context) {
         super(settings,mDev,context);
         bb = ByteBuffer.wrap(sendDataBuffer);
         mView = new LinearLayout(context);
@@ -41,50 +41,54 @@ public class KeyboardMouseMode extends USBMode implements View.OnTouchListener{
         return mView;
     }
 
+    @Override
+    public byte flag() {
+        return USBMode.KBM_MODE;
+    }
+
     public void keyPressed(int keyCode, KeyEvent event){
         MainActivity.DEBUG_VIEW.printConsole("KeyCode: " + keyCode + "Scan code" + event.getScanCode() + " Chars: " + event.getUnicodeChar());
         Log.d("Main", "KeyPressed: " + "KeyCode: " + keyCode + "Scan code" + event.getScanCode() + " Chars: " + event.getUnicodeChar());
-        bb.asIntBuffer().put(0, KEY_EVENT);
-        bb.asIntBuffer().put(1,event.getUnicodeChar());
+        sendDataBuffer[1] = flag();
+        bb.asIntBuffer().put(1, KEY_EVENT);
+        bb.asIntBuffer().put(2,event.getUnicodeChar());
         event.getModifiers();
         if(device.isOpen()) {
             if(event.getKeyCode() != 59)
-                device.sendData(sendDataBuffer,sendDataBuffer.length);
+                device.sendData(sendDataBuffer);
         }
     }
 
     public void onSelected(){
         super.onSelected();
-        showSoftInput();
-    }
-
-    private void showSoftInput(){
-        InputMethodManager imm = (InputMethodManager) mContext.getSystemService(Context.INPUT_METHOD_SERVICE);
-        imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, InputMethodManager.HIDE_IMPLICIT_ONLY);
+        //showSoftInput();
     }
 
     private void onClick(){
         Log.d("KeyBoardMouseMode","Click");
-        bb.asIntBuffer().put(0,MOUSE_CLICK_EVENT);
-        device.sendData(sendDataBuffer,sendDataBuffer.length);
+        sendDataBuffer[1] = flag();
+        bb.asIntBuffer().put(1,MOUSE_CLICK_EVENT);
+        device.sendData(sendDataBuffer);
     }
 
     private void onDrag(float dx, float dy){
         Log.d("KeyBoardMouseMode","Drag " + dx + " " + dy);
         int dxInt = (int) (dx*settings.getMouseDrag()*.02f);
         int dyInt = (int) (dy*settings.getMouseDrag()*.02f);
-        bb.asIntBuffer().put(0, MOUSE_MOVE_EVENT);
-        bb.asIntBuffer().put(1,dxInt);
-        bb.asIntBuffer().put(2,dyInt);
-        device.sendData(sendDataBuffer,sendDataBuffer.length);
+        sendDataBuffer[1] = flag();
+        bb.asIntBuffer().put(1, MOUSE_MOVE_EVENT);
+        bb.asIntBuffer().put(2,dxInt);
+        bb.asIntBuffer().put(3,dyInt);
+        device.sendData(sendDataBuffer);
     }
 
     private void onScroll(float ds){
         Log.d("KeyBoardMouseMode","Scrolling " + ds);
         int dsInt = (int) (ds * settings.getMouseScroll() *.02f);
-        bb.asIntBuffer().put(MOUSE_SCROLL_EVENT);
-        bb.asIntBuffer().put(1,dsInt);
-        device.sendData(sendDataBuffer,sendDataBuffer.length);
+        sendDataBuffer[1] = flag();
+        bb.asIntBuffer().put(1,MOUSE_SCROLL_EVENT);
+        bb.asIntBuffer().put(2,dsInt);
+        device.sendData(sendDataBuffer);
     }
 
 
