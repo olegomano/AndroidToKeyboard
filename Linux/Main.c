@@ -23,6 +23,7 @@
 #include <libusb-1.0/libusb.h>
 #include <time.h>
 #include <sys/time.h>
+#include <math.h>
 #include <unistd.h>
 
 #include "UinputWrapper.h"
@@ -37,9 +38,13 @@
 #define MOUSE_SCROLL_EVENT 4
 
 #define MODE_SS 2
+#define REQUEST_FB_DIMS 1
+#define REQUEST_SS_START 2
+#define REQEUST_SS_STOP 3   
+#define SS_DATA 4 
 //incase of usb.h is missing do the following
 // sudo apt-get install libsubs-dev
-
+int time_function(int count, void (*funct)(int i) );
 
 int flipInt(int wrong){
 	int right;
@@ -52,60 +57,7 @@ int flipInt(int wrong){
 
 	return right;
 }
-/*
-	packets are 32 bytes
-	0xFFFF | 0xFFFF 0xFFFF 0xFFFF 0xFFFF 0xFFFF 0xFFFF 0xFFFF 
-	 type     mode    dx    dy
-     data         pressedKey
-*/
-     /*
-void onDataRead(int dev_id, char* data){
-	int* recieved_data = (int*)data;
-	printf("Key Pressed: %04x \n", *(recieved_data + 1) );
-	char pressedKey; //ascii code of requested key
-	int dx;          
-	int dy;
-	char mode;
-	if(android_device_get_device_id(dev_id)->endianess == SAME){
-		mode = data[0];
-		pressedKey = data[4];
-		dx = recieved_data[1];
-		dy = recieved_data[2];
-	}else{
-		mode = data[3];
-		pressedKey = data[7];
-		char* dx_char = &dx;
-		char* dy_char = &dy;
 
-		dx_char[0] = data[7];
-		dx_char[1] = data[6];
-		dx_char[2] = data[5];
-		dx_char[3] = data[4];
-
-		dy_char[0] = data[11];
-		dy_char[1] = data[10];
-		dy_char[2] = data[9];
-		dy_char[3] = data[8];
-
-	}
-	switch(mode){
-		case KEY_EVENT:
-			uinput_key_press(pressedKey);
-			break;
-		case MOUSE_MOVE_EVENT:
-			uinput_mouse_move(dx,dy);
-			break;
-		case MOUSE_CLICK_EVENT:
-			printf("Click\n");
-			uinput_mouse_click();
-			break;
-		case MOUSE_SCROLL_EVENT:
-			printf("Scroll %d\n",dx );
-			uinput_mouse_scroll(dx);
-			break;	
-	}
-};
-*/
 void kbmMode(int dev_id, char* data){
 	printf("Mouse Mode\n");
 	int* data_int = (int*)(data);
@@ -140,8 +92,71 @@ void kbmMode(int dev_id, char* data){
 
 }
 
-void ssMode(int dev_id, char* data){
+void sendScreenGrab(int dev_id){
+	AndroidDevice* device = android_device_get_device_id(dev_id);
+	char* device_buffer = device->packet;
+	int*  device_buffer_int = (int*)device->packet;
 
+	x11FBuffer* screen_capture = x11_getframe();
+	device_buffer[0] = MODE_SS;
+	device_buffer[1] = SS_DATA;
+	
+	int frame = 0;
+	int frame_size = device->packet_size - sizeof(int)*2;
+	int total_size = x11_get_fb_w() * x11_get_fb_h() * 4.0;
+	int total_frames =  ceil( total_size / (double) frame_size ); 
+	int leftover_bytes = total_size - (total_frames -1)*frame_size;
+	
+	char* screen_capture_fb = (char*)screen_capture->fb_data;
+	//printf("Total Frames: %d\n", total_frames);
+	//printf("Data per frame: %d\n", frame_size);
+	//printf("Left Over Bytes: 5d\n",leftover_bytes);
+	for(frame = 0; frame < total_frames - 1; frame++){
+		device_buffer_int[1] = frame;
+		memcpy(device_buffer + sizeof(int)*2, screen_capture_fb + frame_size*frame, frame_size);
+		android_device_send_data_buffer(dev_id,device->packet_size);
+		printf("Sendind Frame %d \n", frame);
+	}
+	device_buffer_int[1] = total_frames-1;
+	memcpy(device_buffer + sizeof(int)*2, screen_capture_fb + (total_frames-1)*frame_size, leftover_bytes);	
+	android_device_send_data_buffer(dev_id,device->packet_size);
+}
+
+void ssMode(int dev_id, char* data){
+	AndroidDevice* device = android_device_get_device_id(dev_id);
+	char* device_buffer = device->packet;
+	int*  device_buffer_int = (int*)device->packet;
+
+	int* data_int = (int*)data;
+	int request;
+	int first_arg;
+	int second_arg;
+	if(android_device_get_device_id(dev_id)->endianess == SAME){
+		request = data_int[0];
+		first_arg = data_int[1];
+		second_arg = data_int[2];
+	}else{
+		request = flipInt(data_int[0]);
+		first_arg = flipInt(data_int[1]);
+		second_arg = flipInt(data_int[2]);
+	}
+	switch(request){
+		case REQUEST_FB_DIMS:
+			printf("Request for FB dims\n");
+			device_buffer[0] = MODE_SS;
+			device_buffer[1] = REQUEST_FB_DIMS;
+			device_buffer[2] = 15;
+			device_buffer[3] = 15;
+			printf("Framebuffer w,h: %d %d \n",x11_get_fb_w(),x11_get_fb_h() );
+			device_buffer_int[1] = x11_get_fb_w();
+			device_buffer_int[2] = x11_get_fb_h();
+			android_device_send_data_buffer(dev_id,device->packet_size);
+			while(1) sendScreenGrab(dev_id);
+			break;
+
+		case REQUEST_SS_START:break;
+		case REQEUST_SS_STOP: break;
+	}
 }
 
 

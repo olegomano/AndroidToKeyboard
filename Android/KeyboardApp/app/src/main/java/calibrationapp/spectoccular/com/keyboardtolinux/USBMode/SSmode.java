@@ -2,6 +2,11 @@ package calibrationapp.spectoccular.com.keyboardtolinux.USBMode;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
 
@@ -17,8 +22,17 @@ import calibrationapp.spectoccular.com.keyboardtolinux.Views.DebugView;
  * Created by Oleg Tolstov on 5:06 PM, 3/12/16. KeyboardToLinux
  */
 public class SSmode extends USBMode {
+    private static final int REQUEST_FB_DIMS = 1;
+    private static final int REQUEST_SS_START = 2;
+    private static final int REQUEST_SS_END = 3;
+    private static final int SS_DATA = 4;
+
+    private int totalPackets;
     private ImageView imageView;
-    private byte[] mPacket = new byte[UAccessory.WRITE_PACKET_SIZE_FREE];
+    private Bitmap screenBitmap;
+    private byte[] screenBitmapBytes;
+    private int[]  screenBitmapColors;
+    private byte[] mPacket = new byte[UAccessory.WRITE_PACKET_SIZE];
     private ByteBuffer bb;
 
     public SSmode(AppSettings apps, UAccessory mDev, Context context) {
@@ -38,18 +52,20 @@ public class SSmode extends USBMode {
     }
 
     public void onDataReceived(byte[] data){
-        int flag;
+        byte flag = data[1];
         IntBuffer buffer = ByteBuffer.wrap(data).asIntBuffer();
-        if(device.getEndianess()){
-            flag = buffer.get(0);
-        }else{
-            flag = Integer.reverseBytes( buffer.get(0) );
-        }
-        MainActivity.DEBUG_VIEW.printConsole("SSMode got data" + flag);
+        /*
+        MainActivity.DEBUG_VIEW.printConsole("SSMode got data \n" + Integer.toHexString( data[0] )
+                                                                  + " " + Integer.toHexString( data[1] )
+                                                                  + " " + Integer.toHexString( data[2] )
+                                                                  + " " + Integer.toHexString( data[3] )
+                                                                  + " " + Integer.toHexString( buffer.get(1) )
+                                                                  + " " + Integer.toHexString( buffer.get(2) ) );
+        */
         switch (flag){
-            case 0:
-                int fbWidth;
-                int fbHeight;
+            case REQUEST_FB_DIMS:
+                int fbWidth = 0;
+                int fbHeight = 0;
                 if(device.getEndianess()){
                     fbWidth = buffer.get(1);
                     fbHeight = buffer.get(2);
@@ -58,20 +74,57 @@ public class SSmode extends USBMode {
                     fbHeight = Integer.reverseBytes(buffer.get(2));
                 }
                 MainActivity.DEBUG_VIEW.printConsole("FrameBuffer W: " + fbWidth + ", H: " +fbHeight);
+                screenBitmapBytes = new byte[fbWidth*fbHeight*4];
+                screenBitmapColors = new int[fbWidth*fbHeight];
+                screenBitmap = Bitmap.createBitmap(fbWidth,fbHeight, Bitmap.Config.ARGB_8888);
+                totalPackets = (int) Math.ceil( screenBitmapBytes.length / (float)(device.getPacketSize()) );
                 break;
+            case SS_DATA:
+                int packetNumber;
+                if(device.getEndianess()){
+                    packetNumber = buffer.get(1);
+                }else{
+                    packetNumber = Integer.reverseBytes(buffer.get(1));
+                }
+                int dataStart = 8;
+                int dataSize = device.getPacketSize() - dataStart;
+                int bitmapStart = dataSize * packetNumber;
+                //Log.d("SSMode","Packet " + packetNumber);
+                //MainActivity.DEBUG_VIEW.printConsole("Recieved Frame: " + packetNumber + " " + totalPackets);
+                if(packetNumber < totalPackets - 1){
+                    System.arraycopy(data,dataStart, screenBitmapBytes,bitmapStart,dataSize);
+                }else if(packetNumber == totalPackets -1 ){
+                    int remainingData = screenBitmapBytes.length - bitmapStart;
+                    System.arraycopy(data, dataStart, screenBitmapBytes, bitmapStart, remainingData);
+                    ByteBuffer screenBitmapBuffer = ByteBuffer.wrap(screenBitmapBytes);
+                    screenBitmapBuffer.asIntBuffer().get(screenBitmapColors);
+                    screenBitmap.setPixels(screenBitmapColors, 0, screenBitmap.getWidth(), 0, 0, screenBitmap.getWidth(), screenBitmap.getHeight());
+                    new Handler(mContext.getMainLooper()).post(new SetImageRunnable());
+                }
+                break;
+        }
+    }
+
+    private class SetImageRunnable implements Runnable{
+        @Override
+        public void run() {
+            Drawable drawable = new BitmapDrawable(mContext.getResources(), screenBitmap );;
+            imageView.setImageDrawable(drawable);
+            MainActivity.DEBUG_VIEW.printConsole("Got Full Screen Grab");
         }
     }
 
     public void onSelected(){
         isCurrent = true;
-        /*
         int userScreenW = settings.getFBW();
         int userScreenH = settings.getFBH();
-        bb.asIntBuffer().put(CNTRL_RES_REQUEST);
-        bb.asIntBuffer().put(1,userScreenW);
-        bb.asIntBuffer().put(2, userScreenH);
+        mPacket[1] = flag();
+        bb.asIntBuffer().put(1,REQUEST_FB_DIMS);
+        bb.asIntBuffer().put(2,userScreenW);
+        bb.asIntBuffer().put(3, userScreenH);
+        device.sendData(mPacket);
         //device.sendCntrlMsg(mPacket);
-        */
+
     }
 
     public void onDeselected(){

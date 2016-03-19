@@ -40,7 +40,6 @@
 
 struct AndroidDeviceCallbacks{
 	void (*onDataRead)(int dev_id, char* data);
-	void (*onControlMessage)(int dev_id, char* data);
 	void (*onAndroidConnected)(int dev_id);
 	void (*onAndroidDisConnected)(int dev_id);
 };

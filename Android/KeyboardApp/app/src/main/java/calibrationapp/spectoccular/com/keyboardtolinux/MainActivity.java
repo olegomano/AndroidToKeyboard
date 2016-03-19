@@ -149,7 +149,6 @@ public class MainActivity extends AppCompatActivity implements UAccessory.UAcces
                 screenShareMode.onSelected();
                 drawerLayout.closeDrawers();
             case UIMessageInterface.SHOW_NUMPAD:
-                currentView = msg;
                 drawerLayout.closeDrawers();
                 break;
 
@@ -198,7 +197,6 @@ public class MainActivity extends AppCompatActivity implements UAccessory.UAcces
 
     @Override
     public void onDataRead(byte[] data) {
-        DEBUG_VIEW.printConsole(new String(data));
         byte type = data[0];
         for(int i = 0; i < allModes.length; i++){
             if(type == allModes[i].flag()){
@@ -209,7 +207,7 @@ public class MainActivity extends AppCompatActivity implements UAccessory.UAcces
 
     @Override
     public void onIOStarted() {
-        DEBUG_VIEW.printConsole("onIOStarted Called");
+        //DEBUG_VIEW.printConsole("onIOStarted Called");
         menu.setConnectionStatus(MenuView.CONNECTION_STATUS_CONNECTED);
     }
 

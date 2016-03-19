@@ -2,10 +2,10 @@
 all: link
 
 debug: Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o
-	gcc Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o -g -o KeyboardDriver -lusb-1.0 -lpthread -lX11 -lXext 
+	gcc Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o -g -o KeyboardDriver -lusb-1.0 -lpthread -lX11 -lXext -lm
 
 link: Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o
-	gcc Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o -o KeyboardDriver -lusb-1.0 -lpthread -lX11 -lXext 
+	gcc Main.o UsbDevice.o Keyboard.o FrameBuffer.o X11Wrapper.o -o KeyboardDriver -lusb-1.0 -lpthread -lX11 -lXext -lm
 
 Main.o: Main.c  
 	gcc -c Main.c -o Main.o 

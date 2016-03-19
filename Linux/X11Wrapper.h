@@ -13,8 +13,7 @@ typedef struct{ //blue green red format
 	unsigned char a;
 } pixel;
 
-typedef struct $
-{
+typedef struct {
 	unsigned char b;
 	unsigned char g;
 	unsigned char r;

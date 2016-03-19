@@ -42,7 +42,6 @@ int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libu
 int device_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libusb_hotplug_event event, void *user_data);
 AndroidDevice* android_device_match_port(uint8_t* path);
 void android_device_swap_endianess(char* in, char* out, int length);
-int android_device_handshake(int dev_id);
 
 libusb_context* cntx;
 AndroidDevice** devices;
@@ -151,9 +150,9 @@ void android_device_read_thread(int dev_id){
 				if(device->packet != NULL){
 					free(device->packet);
 				}
-
 				device->packet_size = packet_size;
 				device->packet = malloc(packet_size);
+				memset(device->packet,0,packet_size);
 				char handshake_reply[1024];
 				int* handshake_reply_int = (int*)handshake_reply;
 				handshake_reply_int[0] = 1;
@@ -175,100 +174,6 @@ void android_device_read_thread(int dev_id){
 	}
 }
 
-/*
-void android_device_read_thread(int dev_id){
-	AndroidDevice* dev = devices[dev_id];
-	char* packet = malloc(READ_PACKET_SIZE);
-	int read_bytes;
-	int packet_type;
-	int read_result;
-	while(dev->conncetion_status == CONNECTION_STATUS_CONNECTED){
-		if(dev->transfer_status == TRASNFER_STATUS_HANDSHAKE){
-			android_device_handshake(dev_id);
-		}else if(dev->transfer_status == TRANSFER_STATUS_WAITING){
-			memset(packet,0,READ_PACKET_SIZE);
-			read_result = libusb_bulk_transfer(dev->device_handle,IN,packet,READ_PACKET_SIZE,&read_bytes,0);
-			switch(read_result){
-		    	case 0: 
-		    		printf("Successfully read %d bytes \n", read_bytes); break; 
-    			case LIBUSB_ERROR_TIMEOUT: 
-    				printf("ERROR: read timed out \n"); break; 
-    			case LIBUSB_ERROR_PIPE: 
-    				printf("ERROR: endpoint halted \n"); break;
-    			case LIBUSB_ERROR_OVERFLOW: 
-    				printf("ERROR: overflow \n"); break;
-    			case LIBUSB_ERROR_NO_DEVICE: 
-    				printf("ERROR: decice disconnected \n"); break; 
-			}
-			if(read_result != 0) continue; //if there is error reading we pretend we never got it
-			if(dev->endianess == SAME){
-				packet_type = *packet;
-			}else{
-				android_device_swap_endianess(packet,&packet_type,4);
-			}
-			switch(packet_type){
-				case TYPE_CONF: 
-					printf("Config Packet\n");
-					dev->callback.onControlMessage(dev->dev_id,packet + sizeof(int));
-					break;
-				case TYPE_CLS:
-					printf("Cancle Packet\n"); 
-					dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
-					break;
-				case TYPE_DATA: 
-					printf("Data Packet\n");
-					dev->callback.onDataRead(dev->dev_id,packet + sizeof(int));
-					break;
-			}
-
-		}
-	}
-}
-*/
-/*
-			Handshake Format is 32 bytes (4 ints)
-      Cntrl Int   Packet Size   Extra Data  Extra Data
-	    0x0001      OxFFFF        0x0000      0x0000
-      (always 1)
-*/
-int android_device_handshake(int dev_id){
-	AndroidDevice* dev = devices[dev_id];
-	libusb_device_handle* handle = dev->device_handle;
-	unsigned char io_buffer[1024];
-	int read_bytes;
-	memset(io_buffer,0,1024);
-	int err = libusb_bulk_transfer(handle,IN,io_buffer,1024,&read_bytes,5000);
-	if(err){
-		error(err);
-		printf("Timed out Handshake Read\n");
-		return 0;
-	}
-	int* io_buffer_int = (int*)io_buffer;
-	int  packet_size;
-	if(*io_buffer_int == 1){
-		packet_size = io_buffer_int[1];
-		dev->endianess = SAME;
-	}else{
-		android_device_swap_endianess(io_buffer + sizeof(int),(char*)&packet_size,4);
-		dev->endianess = OPPOSITE;
-	}
-	printf("Device Packet Size: %d\n",packet_size);	
-	dev->packet_size = packet_size;
-	dev->packet = malloc(packet_size);
-	io_buffer_int[0] = 1;
-	io_buffer_int[1] = READ_PACKET_SIZE;
-	err = android_device_send_data(dev_id,io_buffer,1024);
-	if(err){
-		printf("Failed Handshake Responce\n");
-		return 0;
-	}
-
-	dev->transfer_status = TRANSFER_STATUS_WAITING;
-	android_device_print_device(dev_id);
-	printf("Handshake Success\n");
-	return 1;
-	
-}
 
 /*
 	Gets the hotplug events for a device in accessoy mode.
@@ -404,10 +309,10 @@ int android_device_send_data_buffer(int dev_id, int length){
 	if(length > dev->packet_size){
 		printf("Error sending, length larger than packet size\n");
 	}
-	int result = libusb_bulk_transfer(dev->device_handle,OUT,dev->packet,length,&transferred_bytes,7500);
+	int result = libusb_bulk_transfer(dev->device_handle,OUT,dev->packet,length,&transferred_bytes,4);
 	switch(result){
-	    case 0: 
-	    	printf("Successfully transfered %d bytes \n", transferred_bytes); break; 
+	    case 0: break; 
+	    	//printf("Successfully transfered %d bytes \n", transferred_bytes); break; 
     	case LIBUSB_ERROR_TIMEOUT: 
     		printf("ERROR: transfer timed out \n"); break; 
     	case LIBUSB_ERROR_PIPE: 

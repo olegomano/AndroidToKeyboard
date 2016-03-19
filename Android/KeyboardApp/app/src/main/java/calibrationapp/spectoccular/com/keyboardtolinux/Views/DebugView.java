@@ -19,6 +19,7 @@ package calibrationapp.spectoccular.com.keyboardtolinux.Views;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ArrayAdapter;
@@ -71,7 +72,10 @@ public class DebugView implements Runnable{
     public synchronized void run() {
         if(!pendingPrint) return;
         if(!consoleLog.empty()) {
-            outputConsole.setText(consoleLog.pop());
+            String text = consoleLog.pop();
+            outputConsole.setText(text);
+            Log.d("DebugView",text);
+
         }
         consoleLog.clear();
         pendingPrint = false;

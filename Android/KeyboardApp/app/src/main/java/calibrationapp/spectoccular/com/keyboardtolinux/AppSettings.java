@@ -30,11 +30,11 @@ public class AppSettings {
     }
 
     public int getMouseDrag(){
-        return (int) mouseDragMod;
+        return mouseDragMod;
     }
 
     public int getMouseScroll(){
-        return (int) mouseScrollMod;
+        return mouseScrollMod;
     }
 
     public void setMouseScroll(int f){
