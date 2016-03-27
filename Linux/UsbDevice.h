@@ -53,12 +53,13 @@ struct AndroidDevice{
 	volatile int conncetion_status; //connecetd / disconnected
 	volatile int transfer_status; // handshake, reading, waiting
 	volatile int packet_size;
+	volatile int buffer_size;
 	volatile int endianess;
 	volatile uint8_t port_numbers[7];
 
 	libusb_device* device;              
 	libusb_device_handle* device_handle;
-	char* packet;
+	char* buffer;
 
 	AndroidDeviceCallbacks callback;
 };
@@ -69,7 +70,7 @@ int android_device_reg(int vid, int pid); //returns ID of device
 int android_device_destroy_context();
 int android_device_poll_events();
 int android_device_send_data(int dev_id, unsigned char* data, int length);
-int android_device_send_data_buffer(int dev_id, int length);
+int android_device_send_data_buffer(int dev_id, int length, int timeout);
 int android_device_set_callbacks(int dev_id, AndroidDeviceCallbacks callback);
 void android_device_print_device(int dev_id);
 AndroidDevice* android_device_get_device(int vid, int pid);

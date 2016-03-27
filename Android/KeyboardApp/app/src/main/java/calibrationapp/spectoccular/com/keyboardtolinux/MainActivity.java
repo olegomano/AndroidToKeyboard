@@ -67,7 +67,7 @@ public class MainActivity extends AppCompatActivity implements UAccessory.UAcces
         DP_TO_PIX_RATIO = getResources().getDisplayMetrics().density;;
         DEBUG_VIEW = new DebugView(this);
         usbAccessory = new UAccessory(this);
-        usbAccessory.setPacketSize(16384);//maximum packet size for reading as defined by google
+        usbAccessory.setPacketSize(16384);   // 16384 maximum packet size for reading as defined by google
         usbAccessory.setDataReadListener(this);
 
         settings = new AppSettings(this);

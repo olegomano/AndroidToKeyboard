@@ -68,7 +68,7 @@ int android_device_reg(int vid, int pid){
 	n_dev->product_id = pid;
 	n_dev->conncetion_status = CONNECTION_STATUS_DISCONNECTED;
 	n_dev->transfer_status = TRASNFER_STATUS_HANDSHAKE;
-	n_dev->packet = NULL;
+	n_dev->buffer = NULL;
 	
 	int m_id = alloced_device_count;
 	n_dev->dev_id = m_id;
@@ -147,12 +147,13 @@ void android_device_read_thread(int dev_id){
 					device->endianess = OPPOSITE;
 					android_device_swap_endianess( (char*) (&packet_payload[1]) , (char*)(&packet_size), sizeof(int) );
 				}
-				if(device->packet != NULL){
-					free(device->packet);
+				if(device->buffer != NULL){
+					free(device->buffer);
 				}
 				device->packet_size = packet_size;
-				device->packet = malloc(packet_size);
-				memset(device->packet,0,packet_size);
+				device->buffer = malloc(packet_size);
+				device->buffer_size = packet_size;
+				memset(device->buffer,0,packet_size);
 				char handshake_reply[1024];
 				int* handshake_reply_int = (int*)handshake_reply;
 				handshake_reply_int[0] = 1;
@@ -303,13 +304,13 @@ int android_device_send_data(int dev_id, unsigned char* data, int length){
 	return result;
 }
 
-int android_device_send_data_buffer(int dev_id, int length){
+int android_device_send_data_buffer(int dev_id, int length, int timeout){
 	AndroidDevice* dev = devices[dev_id];
 	int transferred_bytes;
 	if(length > dev->packet_size){
-		printf("Error sending, length larger than packet size\n");
+	//	printf("Error sending, length larger than packet size\n");
 	}
-	int result = libusb_bulk_transfer(dev->device_handle,OUT,dev->packet,length,&transferred_bytes,4);
+	int result = libusb_bulk_transfer(dev->device_handle,OUT,dev->buffer,length,&transferred_bytes,timeout);
 	switch(result){
 	    case 0: break; 
 	    	//printf("Successfully transfered %d bytes \n", transferred_bytes); break; 

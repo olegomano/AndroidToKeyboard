@@ -30,6 +30,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 
 /**
  * Created by Oleg Tolstov on 8:46 PM, 1/19/16. KeyboardToLinux
@@ -61,7 +62,7 @@ public class UAccessory extends BroadcastReceiver implements Runnable{
     private volatile FileInputStream inputStream = null;
     private volatile FileOutputStream outputStream = null;
     private volatile UAccessoryStatusListener listener;
-    private ParcelFileDescriptor pfd;
+    private volatile ParcelFileDescriptor pfd;
 
     private volatile boolean hasPermission = false;
     private volatile boolean isOpen = false;

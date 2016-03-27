@@ -26,6 +26,7 @@ public class SSmode extends USBMode {
     private static final int REQUEST_SS_START = 2;
     private static final int REQUEST_SS_END = 3;
     private static final int SS_DATA = 4;
+    private static final int SS_SYN = 5;
 
     private int totalPackets;
     private ImageView imageView;
@@ -66,18 +67,21 @@ public class SSmode extends USBMode {
             case REQUEST_FB_DIMS:
                 int fbWidth = 0;
                 int fbHeight = 0;
+                int packetCount = 0;
                 if(device.getEndianess()){
                     fbWidth = buffer.get(1);
                     fbHeight = buffer.get(2);
+                    packetCount = buffer.get(3);
                 }else{
                     fbWidth = Integer.reverseBytes(buffer.get(1));
                     fbHeight = Integer.reverseBytes(buffer.get(2));
+                    packetCount = Integer.reverseBytes(buffer.get(3));
                 }
                 MainActivity.DEBUG_VIEW.printConsole("FrameBuffer W: " + fbWidth + ", H: " +fbHeight);
                 screenBitmapBytes = new byte[fbWidth*fbHeight*4];
                 screenBitmapColors = new int[fbWidth*fbHeight];
                 screenBitmap = Bitmap.createBitmap(fbWidth,fbHeight, Bitmap.Config.ARGB_8888);
-                totalPackets = (int) Math.ceil( screenBitmapBytes.length / (float)(device.getPacketSize()) );
+                totalPackets = packetCount;
                 break;
             case SS_DATA:
                 int packetNumber;
@@ -91,16 +95,19 @@ public class SSmode extends USBMode {
                 int bitmapStart = dataSize * packetNumber;
                 //Log.d("SSMode","Packet " + packetNumber);
                 //MainActivity.DEBUG_VIEW.printConsole("Recieved Frame: " + packetNumber + " " + totalPackets);
+                if(packetNumber < 0 || packetNumber > totalPackets) return;
                 if(packetNumber < totalPackets - 1){
                     System.arraycopy(data,dataStart, screenBitmapBytes,bitmapStart,dataSize);
                 }else if(packetNumber == totalPackets -1 ){
                     int remainingData = screenBitmapBytes.length - bitmapStart;
                     System.arraycopy(data, dataStart, screenBitmapBytes, bitmapStart, remainingData);
-                    ByteBuffer screenBitmapBuffer = ByteBuffer.wrap(screenBitmapBytes);
-                    screenBitmapBuffer.asIntBuffer().get(screenBitmapColors);
-                    screenBitmap.setPixels(screenBitmapColors, 0, screenBitmap.getWidth(), 0, 0, screenBitmap.getWidth(), screenBitmap.getHeight());
-                    new Handler(mContext.getMainLooper()).post(new SetImageRunnable());
                 }
+                break;
+            case SS_SYN:
+                ByteBuffer screenBitmapBuffer = ByteBuffer.wrap(screenBitmapBytes);
+                screenBitmapBuffer.asIntBuffer().get(screenBitmapColors);
+                screenBitmap.setPixels(screenBitmapColors, 0, screenBitmap.getWidth(), 0, 0, screenBitmap.getWidth(), screenBitmap.getHeight());
+                new Handler(mContext.getMainLooper()).post(new SetImageRunnable());
                 break;
         }
     }
