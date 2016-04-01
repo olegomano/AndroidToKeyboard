@@ -12,11 +12,13 @@ public class AppSettings {
     private static final String DRAG_MOD_KEY = "MOUSE_DRAG_MOD";
     private static final String FB_W = "FRAME_BUFFER_W";
     private static final String FB_H = "FRAME_BUFFER_H";
+    private static final String FB_SCALE = "FRAME_BUFFER_SCALE";
     private SharedPreferences settings;
     private int mouseScrollMod = 1;
     private int mouseDragMod = 1;
     private int framebufferResW = 1280;
     private int framebufferResH = 720;
+    private int downScale = 1;
 
 
     public AppSettings(Context c){
@@ -25,8 +27,8 @@ public class AppSettings {
         mouseDragMod = settings.getInt(DRAG_MOD_KEY,1);
         framebufferResH = settings.getInt(FB_H, 720);
         framebufferResW = settings.getInt(FB_W,1280);
+        downScale = settings.getInt(FB_SCALE,1);
         Log.d("AppSettings","Loaded Settings:  Drag, Scroll:" + mouseDragMod + " , " + mouseScrollMod);
-
     }
 
     public int getMouseDrag(){
@@ -60,6 +62,7 @@ public class AppSettings {
         editor.putInt(DRAG_MOD_KEY, mouseDragMod);
         editor.putInt(FB_H, framebufferResH);
         editor.putInt(FB_W, framebufferResW);
+        editor.putInt(FB_SCALE,downScale);
         editor.apply();
     }
 }

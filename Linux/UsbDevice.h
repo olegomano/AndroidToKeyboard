@@ -23,8 +23,11 @@
 #include <libusb-1.0/libusb.h>
 #include <string.h> 
 
-#define IN 0x81
+#define IN 0x81       
 #define OUT 0x02
+#define INTERFACE 0    
+//81
+//2    
 #define OPPOSITE 0
 #define SAME 1
 
@@ -35,7 +38,8 @@
 
 #define TRASNFER_STATUS_HANDSHAKE 0
 #define TRANSFER_STATUS_READING 1
-#define TRANSFER_STATUS_WAITING 2    
+#define TRANSFER_STATUS_WAITING 2
+#define TRANSFER_STATUS_SCREEN_SHARE 3    
 
 
 struct AndroidDeviceCallbacks{
@@ -60,7 +64,7 @@ struct AndroidDevice{
 	libusb_device* device;              
 	libusb_device_handle* device_handle;
 	char* buffer;
-
+	void* extra_data[8];
 	AndroidDeviceCallbacks callback;
 };
 typedef struct AndroidDevice AndroidDevice;

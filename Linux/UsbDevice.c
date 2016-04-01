@@ -110,7 +110,7 @@ void android_device_read_thread(int dev_id){
 	int  read_err;
 	while(device->conncetion_status == CONNECTION_STATUS_CONNECTED){
 		memset(read_packet,0,READ_PACKET_SIZE);
-		read_err = libusb_bulk_transfer(device->device_handle,IN,read_packet,READ_PACKET_SIZE,&read_bytes,0);
+		read_err = libusb_bulk_transfer(device->device_handle,IN,read_packet,READ_PACKET_SIZE,&read_bytes,INTERFACE);
 		if(read_err!=0){ //there is an error reading
 			switch(read_err){
 				case LIBUSB_ERROR_TIMEOUT: 
@@ -167,7 +167,7 @@ void android_device_read_thread(int dev_id){
 			}
 		}else{
 			switch(packet_type){
-				case PACKET_DATA: device->callback.onDataRead(dev_id,read_packet + sizeof(char) );  break;
+				case PACKET_DATA:  device->callback.onDataRead(dev_id,read_packet + sizeof(char) );  break;
 				case PACKET_CLOSE: device->transfer_status = TRASNFER_STATUS_HANDSHAKE; break;
 			}
 		}
@@ -200,13 +200,13 @@ int accessory_hotplug(struct libusb_context *ctx, struct libusb_device *dev,libu
 			
 			error(res);
 					
-			res = libusb_detach_kernel_driver(matched_dev->device_handle,0);
+			res = libusb_detach_kernel_driver(matched_dev->device_handle,INTERFACE);
 			
 			if(detatch_kernel_driver_error(res)){
 			//	return 0;
 			}
 
-			res = libusb_claim_interface(matched_dev->device_handle, 0);	
+			res = libusb_claim_interface(matched_dev->device_handle, INTERFACE);	
 			if(claim_interface_error(res)){
 			//	return 0;
 			}

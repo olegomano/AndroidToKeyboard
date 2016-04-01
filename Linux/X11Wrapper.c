@@ -24,6 +24,7 @@ int x11_init(){
 	framebuffer.h = xWindow_h;
 	//framebuffer.fb_data = malloc(sizeof(pixel) * xWindow_w * xWindow_h);
 	xshm_image = x11_shminit();
+	framebuffer.fb_data = malloc(xWindow_w * xWindow_h * 4);
 };
 
 x11FBuffer* x11_getframe(){
@@ -31,7 +32,14 @@ x11FBuffer* x11_getframe(){
 		printf("Failed get shmgetImage\n");
 		return;
 	}
-	framebuffer.fb_data = (pixel*)xshm_image->data;
+	int i;
+	for(i = 0; i < xWindow_h * xWindow_w; i++){
+		framebuffer.fb_data[i].a = ((pixel*)xshm_image->data)[i].b;
+        framebuffer.fb_data[i].r = ((pixel*)xshm_image->data)[i].g;
+		framebuffer.fb_data[i].g = ((pixel*)xshm_image->data)[i].r;
+		framebuffer.fb_data[i].b = ((pixel*)xshm_image->data)[i].a;
+	}
+
 	/*
 	int pixel;
 	for(pixel = 0; pixel < (framebuffer.w * framebuffer.h) ; pixel++){

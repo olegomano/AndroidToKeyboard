@@ -39,6 +39,7 @@ public class SSmode extends USBMode {
     public SSmode(AppSettings apps, UAccessory mDev, Context context) {
         super(apps, mDev, context);
         imageView = new ImageView(context);
+        imageView.getImageMatrix().postRotate(90);
         bb = ByteBuffer.wrap(mPacket);
     }
 
@@ -104,9 +105,6 @@ public class SSmode extends USBMode {
                 }
                 break;
             case SS_SYN:
-                ByteBuffer screenBitmapBuffer = ByteBuffer.wrap(screenBitmapBytes);
-                screenBitmapBuffer.asIntBuffer().get(screenBitmapColors);
-                screenBitmap.setPixels(screenBitmapColors, 0, screenBitmap.getWidth(), 0, 0, screenBitmap.getWidth(), screenBitmap.getHeight());
                 new Handler(mContext.getMainLooper()).post(new SetImageRunnable());
                 break;
         }
@@ -115,7 +113,10 @@ public class SSmode extends USBMode {
     private class SetImageRunnable implements Runnable{
         @Override
         public void run() {
-            Drawable drawable = new BitmapDrawable(mContext.getResources(), screenBitmap );;
+            ByteBuffer screenBitmapBuffer = ByteBuffer.wrap(screenBitmapBytes);
+            screenBitmapBuffer.asIntBuffer().get(screenBitmapColors);
+            screenBitmap.setPixels(screenBitmapColors, 0, screenBitmap.getWidth(), 0, 0, screenBitmap.getWidth(), screenBitmap.getHeight());
+            Drawable drawable = new BitmapDrawable(mContext.getResources(), screenBitmap );
             imageView.setImageDrawable(drawable);
             MainActivity.DEBUG_VIEW.printConsole("Got Full Screen Grab");
         }

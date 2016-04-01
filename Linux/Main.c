@@ -46,6 +46,13 @@
 
 #define SS_PACKET_HEADER 8
 
+typedef struct {
+	int total_packets;
+	int data_per_packet;
+	int leftover_bytes;
+	int scale;
+} ScreenGrabParams;
+
 //incase of usb.h is missing do the following
 // sudo apt-get install libsubs-dev
 int time_function(int count, void (*funct)(int i) );
@@ -103,6 +110,42 @@ void kbmMode(int dev_id, char* data){
 
 }
 
+void sendScreenCapture(int dev_id, ScreenGrabParams* params){
+	x11FBuffer* screen_buffer = x11_getframe();
+	AndroidDevice* device = android_device_get_device_id(dev_id);
+
+	int packet_count = params->total_packets;
+	int data_per_packet = params->data_per_packet;
+	
+	int current_packet;
+	int screen_buffer_pos = 0;
+	int packet_pos = 0;
+
+	long int send_start = get_millis();
+	for(current_packet = 0; current_packet < packet_count -1; current_packet++){
+		screen_buffer_pos = data_per_packet*current_packet;
+		packet_pos = current_packet * (data_per_packet + SS_PACKET_HEADER);
+		device->buffer[packet_pos    ] = MODE_SS;
+		device->buffer[packet_pos + 1] = SS_DATA;
+		*((int*)(&device->buffer[packet_pos + 4])) = current_packet;
+		memcpy(device->buffer + packet_pos + SS_PACKET_HEADER,(char*)screen_buffer->fb_data + screen_buffer_pos,data_per_packet);
+	}
+	screen_buffer_pos = data_per_packet*current_packet;
+	packet_pos = current_packet * (data_per_packet + SS_PACKET_HEADER);
+	device->buffer[packet_pos    ] = MODE_SS;
+	device->buffer[packet_pos + 1] = SS_DATA;
+	*((int*)(&device->buffer[packet_pos + 4])) = current_packet;
+	memcpy(device->buffer + packet_pos + SS_PACKET_HEADER,(char*)screen_buffer->fb_data + screen_buffer_pos,params->leftover_bytes);
+
+	android_device_send_data_buffer(dev_id,device->buffer_size,0);
+	long int send_end = get_millis();
+	printf("Packet Send Time: %f \n", ( (float)(send_end - send_start) / 1000.0f) );
+
+	device->buffer[0] = MODE_SS;
+	device->buffer[1] = SS_SYN;
+	android_device_send_data_buffer(dev_id,device->packet_size,0);
+}	
+
 void sendScreenGrab(int dev_id){
 	AndroidDevice* device = android_device_get_device_id(dev_id);
 	char* device_buffer = device->buffer;
@@ -147,7 +190,6 @@ void sendScreenGrab(int dev_id){
 	long int start_syn = get_millis();
 	android_device_send_data_buffer(dev_id,device->packet_size,0);
 	printf("Syn takes %ld\n", (get_millis() - start_syn));
-
 }
 
 void ssMode(int dev_id, char* data){
@@ -159,14 +201,17 @@ void ssMode(int dev_id, char* data){
 	int request;
 	int first_arg;
 	int second_arg;
+	int third_arg;
 	if(android_device_get_device_id(dev_id)->endianess == SAME){
 		request = data_int[0];
 		first_arg = data_int[1];
 		second_arg = data_int[2];
+		third_arg = data_int[3];
 	}else{
 		request = flipInt(data_int[0]);
 		first_arg = flipInt(data_int[1]);
 		second_arg = flipInt(data_int[2]);
+		third_arg = flipInt(data_int[3]);
 	}
 	switch(request){
 		case REQUEST_FB_DIMS:
@@ -175,24 +220,32 @@ void ssMode(int dev_id, char* data){
 			device_buffer[1] = REQUEST_FB_DIMS;
 			device_buffer[2] = 15;
 			device_buffer[3] = 15;
+			
 			printf("Framebuffer w,h: %d %d \n",x11_get_fb_w(),x11_get_fb_h() );
-			int frame_size = device->packet_size - sizeof(int)*2;
+			int frame_size = device->packet_size - SS_PACKET_HEADER;
 		    int total_size = x11_get_fb_w() * x11_get_fb_h() * 4.0;
 			int total_frames =  ceil( total_size / (double) frame_size ); 
-	
+			int leftover_bytes = total_size - frame_size*(total_frames - 1);			
+
 			device_buffer_int[1] = x11_get_fb_w();
 			device_buffer_int[2] = x11_get_fb_h();
 			device_buffer_int[3] = total_frames;
 			android_device_send_data_buffer(dev_id,device->packet_size,0);
 			free(device->buffer);
-			device->buffer = malloc(total_frames*device->packet_size);
-			device->buffer_size = total_frames*device->packet_size;
+			device->buffer        = malloc(total_frames*device->packet_size);
+			device->buffer_size   = total_frames*device->packet_size;
+			
+			device->extra_data[0] = malloc(sizeof(ScreenGrabParams));
+			ScreenGrabParams* params = device->extra_data[0];
+			params->total_packets    = total_frames;
+			params->data_per_packet  = frame_size;
+			params->leftover_bytes   = leftover_bytes;
 
-			while(1) sendScreenGrab(dev_id);
+			while(1) sendScreenCapture(dev_id,params);
 			break;
 
-		case REQUEST_SS_START:break;
-		case REQEUST_SS_STOP: break;
+		case REQUEST_SS_START: device->transfer_status = TRANSFER_STATUS_SCREEN_SHARE; break;
+		case REQEUST_SS_STOP:  device->transfer_status = TRANSFER_STATUS_WAITING; break;
 	}
 }
 
