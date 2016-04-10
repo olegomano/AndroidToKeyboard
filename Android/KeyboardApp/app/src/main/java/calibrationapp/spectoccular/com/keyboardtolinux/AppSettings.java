@@ -55,6 +55,12 @@ public class AppSettings {
         return framebufferResH;
     }
 
+    public int getDownScale(){return downScale;}
+
+    public void setDownScale(int dscale){
+        downScale = dscale;
+    }
+
     public void save(){
         Log.d("AppSettings","Saving Settings:  Drag, Scroll " + mouseDragMod + " , " + mouseScrollMod);
         SharedPreferences.Editor editor = settings.edit();

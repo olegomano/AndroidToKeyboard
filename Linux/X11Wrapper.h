@@ -7,10 +7,10 @@
 #include <sys/shm.h> 
 
 typedef struct{ //blue green red format
-	unsigned char b;
-	unsigned char g;
-	unsigned char r;
-	unsigned char a;
+	unsigned char b; //a
+	unsigned char g; //r
+	unsigned char r; //g
+	unsigned char a; //b
 } pixel;
 
 typedef struct {

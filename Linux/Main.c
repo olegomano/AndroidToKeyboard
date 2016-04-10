@@ -31,6 +31,9 @@
 #include "FrameBuffer.h"
 #include "X11Wrapper.h"
 
+#define BUFFER_FREE 0
+#define BUFFER_USED 1
+
 #define MODE_KBM 1
 #define KEY_EVENT 1
 #define MOUSE_MOVE_EVENT 2
@@ -47,11 +50,15 @@
 #define SS_PACKET_HEADER 8
 
 typedef struct {
+	int fb_size;
 	int total_packets;
 	int data_per_packet;
 	int leftover_bytes;
 	int scale;
 } ScreenGrabParams;
+
+char* x11_buffer[3];
+int   x11_buffer_used[3];
 
 //incase of usb.h is missing do the following
 // sudo apt-get install libsubs-dev
@@ -111,9 +118,12 @@ void kbmMode(int dev_id, char* data){
 }
 
 void sendScreenCapture(int dev_id, ScreenGrabParams* params){
+	long get_frame_start = get_millis();
 	x11FBuffer* screen_buffer = x11_getframe();
-	AndroidDevice* device = android_device_get_device_id(dev_id);
+	long get_frame_end = get_millis();
+	printf("Get Frame Time %f\n", (get_frame_end - get_frame_start)/1000.0f);
 
+	AndroidDevice* device = android_device_get_device_id(dev_id);
 	int packet_count = params->total_packets;
 	int data_per_packet = params->data_per_packet;
 	
@@ -137,59 +147,54 @@ void sendScreenCapture(int dev_id, ScreenGrabParams* params){
 	*((int*)(&device->buffer[packet_pos + 4])) = current_packet;
 	memcpy(device->buffer + packet_pos + SS_PACKET_HEADER,(char*)screen_buffer->fb_data + screen_buffer_pos,params->leftover_bytes);
 
-	android_device_send_data_buffer(dev_id,device->buffer_size,0);
+	android_device_send_data_buffer(dev_id,device->buffer_size,320);
 	long int send_end = get_millis();
 	printf("Packet Send Time: %f \n", ( (float)(send_end - send_start) / 1000.0f) );
 
+	long int syn_start = get_millis();
 	device->buffer[0] = MODE_SS;
 	device->buffer[1] = SS_SYN;
 	android_device_send_data_buffer(dev_id,device->packet_size,0);
+	long int syn_end = get_millis();
+	printf("Syn Time: %f \n", ( (float)(syn_end - syn_start) / 1000.0f) );
+
 }	
 
-void sendScreenGrab(int dev_id){
+void sendBufferedScreenCap(char* buffer, int dev_id, ScreenGrabParams* params){
 	AndroidDevice* device = android_device_get_device_id(dev_id);
-	char* device_buffer = device->buffer;
-	int*  device_buffer_int = (int*)device->buffer;
-	long int start_screen_capture = get_millis();
-	x11FBuffer* screen_capture = x11_getframe();
-	printf("Screen Capture takes: %ld \n",  (get_millis() - start_screen_capture));
-	device_buffer[0] = MODE_SS;
-	device_buffer[1] = SS_DATA;
+	int packet_count = params->total_packets;
+	int data_per_packet = params->data_per_packet;
 	
-	int frame = 0;
-	int frame_size = device->packet_size - sizeof(int)*2;
-	int total_size = x11_get_fb_w() * x11_get_fb_h() * 4.0;
-	int total_frames =  ceil( total_size / (double) frame_size ); 
-	int leftover_bytes = total_size - (total_frames -1)*frame_size;
-	int total_size_buffer = total_frames*device->packet_size;
+	int current_packet;
+	int screen_buffer_pos = 0;
+	int packet_pos = 0;
 
-	char* screen_capture_fb = (char*)screen_capture->fb_data;
-	long int start_sending_packets = get_millis();
-	int current_frame;
-	int screen_capture_start;
-	int device_buffer_start;
-	for(current_frame = 0; current_frame < total_frames - 1; current_frame++){
-		device_buffer_start = current_frame*device->packet_size;
-		screen_capture_start = current_frame*frame_size;
-		device_buffer[device_buffer_start] = MODE_SS;
-		device_buffer[device_buffer_start + 1] = SS_DATA;
-		*((int*)(&device_buffer[device_buffer_start + 4])) = current_frame; 
-		memcpy(device_buffer + device_buffer_start + SS_PACKET_HEADER,screen_capture_fb+screen_capture_start,frame_size); 
+	long int send_start = get_millis();
+	for(current_packet = 0; current_packet < packet_count -1; current_packet++){
+		screen_buffer_pos = data_per_packet*current_packet;
+		packet_pos = current_packet * (data_per_packet + SS_PACKET_HEADER);
+		device->buffer[packet_pos    ] = MODE_SS;
+		device->buffer[packet_pos + 1] = SS_DATA;
+		*((int*)(&device->buffer[packet_pos + 4])) = current_packet;
+		memcpy(device->buffer + packet_pos + SS_PACKET_HEADER,buffer + screen_buffer_pos,data_per_packet);
 	}
-	
-	device_buffer_start = current_frame*device->packet_size;
-	screen_capture_start = current_frame*frame_size;
-	device_buffer[device_buffer_start] = MODE_SS;
-	device_buffer[device_buffer_start + 1] = SS_DATA;
-	*((int*)(&device_buffer[device_buffer_start + 4])) = current_frame; 
-	memcpy(device_buffer + device_buffer_start + SS_PACKET_HEADER,screen_capture_fb+screen_capture_start,leftover_bytes); 
-	android_device_send_data_buffer(dev_id,total_size_buffer,0);
-	printf("Packet takes %ld\n", (get_millis() - start_sending_packets));
-	device_buffer[0] = MODE_SS;
-	device_buffer[1] = SS_SYN;
-	long int start_syn = get_millis();
+	screen_buffer_pos = data_per_packet*current_packet;
+	packet_pos = current_packet * (data_per_packet + SS_PACKET_HEADER);
+	device->buffer[packet_pos    ] = MODE_SS;
+	device->buffer[packet_pos + 1] = SS_DATA;
+	*((int*)(&device->buffer[packet_pos + 4])) = current_packet;
+	memcpy(device->buffer + packet_pos + SS_PACKET_HEADER,buffer + screen_buffer_pos,params->leftover_bytes);
+
+	android_device_send_data_buffer(dev_id,device->buffer_size,320);
+	long int send_end = get_millis();
+	printf("Packet Send Time: %f \n", ( (float)(send_end - send_start) / 1000.0f) );
+
+	long int syn_start = get_millis();
+	device->buffer[0] = MODE_SS;
+	device->buffer[1] = SS_SYN;
 	android_device_send_data_buffer(dev_id,device->packet_size,0);
-	printf("Syn takes %ld\n", (get_millis() - start_syn));
+	long int syn_end = get_millis();
+	printf("Syn Time: %f \n", ( (float)(syn_end - syn_start) / 1000.0f) );
 }
 
 void ssMode(int dev_id, char* data){
@@ -202,17 +207,21 @@ void ssMode(int dev_id, char* data){
 	int first_arg;
 	int second_arg;
 	int third_arg;
+	int f_arg;
 	if(android_device_get_device_id(dev_id)->endianess == SAME){
 		request = data_int[0];
 		first_arg = data_int[1];
 		second_arg = data_int[2];
 		third_arg = data_int[3];
+		f_arg = data[4];
 	}else{
 		request = flipInt(data_int[0]);
 		first_arg = flipInt(data_int[1]);
 		second_arg = flipInt(data_int[2]);
 		third_arg = flipInt(data_int[3]);
+		f_arg = flipInt(data_int[4]);
 	}
+	printf("Flag: %d\n", request);
 	switch(request){
 		case REQUEST_FB_DIMS:
 			printf("Request for FB dims\n");
@@ -235,17 +244,35 @@ void ssMode(int dev_id, char* data){
 			device->buffer        = malloc(total_frames*device->packet_size);
 			device->buffer_size   = total_frames*device->packet_size;
 			
-			device->extra_data[0] = malloc(sizeof(ScreenGrabParams));
+			device->extra_data[0]    = malloc(sizeof(ScreenGrabParams));
 			ScreenGrabParams* params = device->extra_data[0];
+			params->fb_size          = x11_get_fb_w() * x11_get_fb_h() * 4;
+			params->scale            = f_arg;
 			params->total_packets    = total_frames;
 			params->data_per_packet  = frame_size;
 			params->leftover_bytes   = leftover_bytes;
-
-			while(1) sendScreenCapture(dev_id,params);
+			
+			if(x11_buffer[0] != NULL){
+				free(x11_buffer[0]);
+				free(x11_buffer[1]);
+				free(x11_buffer[2]);
+			}
+			x11_buffer[0] = malloc(x11_get_fb_h()*x11_get_fb_w()*4);
+     		x11_buffer[1] = malloc(x11_get_fb_h()*x11_get_fb_w()*4);
+     		x11_buffer[2] = malloc(x11_get_fb_h()*x11_get_fb_w()*4);
+     		//while(1) sendScreenCapture(dev_id,params);
 			break;
 
-		case REQUEST_SS_START: device->transfer_status = TRANSFER_STATUS_SCREEN_SHARE; break;
-		case REQEUST_SS_STOP:  device->transfer_status = TRANSFER_STATUS_WAITING; break;
+		case REQUEST_SS_START: 
+			device->transfer_status = TRANSFER_STATUS_SCREEN_SHARE; 
+			printf("Request to Start SS\n");
+			x11_thread_start(dev_id);
+			break;
+		case REQEUST_SS_STOP:  
+			device->transfer_status = TRANSFER_STATUS_WAITING; 
+			printf("Request to End SS\n");
+			x11_thread_stop();
+			break;
 	}
 }
 
@@ -291,15 +318,123 @@ void android_thread(){
 }
 
 pthread_t x11_thread_h;
-volatile int x11_thread_status = -1;
-void x11_thread(){
-	while(x11_thread_status){
+pthread_t usb_send_thread_h;
+volatile int x11_thread_status = 0;
+volatile int x11_thread_kill   = 0;
+volatile int x11_buffer_index  = 0;
+volatile int x11_buffer_new    = 0;
+pthread_mutex_t x11_thread_mutex;
+pthread_mutex_t x11_status_mutex;
+pthread_mutex_t x11_buffer_mutex;
+
+
+
+void x11_thread(int dev_id){
+	printf("Thread Started for Dev %d \n", dev_id);
+	pthread_mutex_lock(&x11_thread_mutex);
+	x11_thread_status = 1;
+	ScreenGrabParams* params = android_device_get_device_id(dev_id)->extra_data[0];	
+	int mIndex = 0;
+	while(1){
+		pthread_mutex_lock(&x11_status_mutex);
+		if(x11_thread_kill) {
+			printf("x11 read kill flag\n");
+			pthread_mutex_unlock(&x11_status_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&x11_status_mutex);
+		
+		pthread_mutex_lock(&x11_buffer_mutex);
+		x11_buffer_new++;
+		for(mIndex = 0; mIndex < 3; mIndex++){
+			if(x11_buffer_used[mIndex] == BUFFER_FREE){
+				mIndex = BUFFER_FREE;
+				break;
+			}
+		}
+		x11_buffer_used[mIndex] = BUFFER_USED;
+		pthread_mutex_unlock(&x11_buffer_mutex);
+		
+		x11FBuffer* screen_buffer = x11_getframe();
+		memcpy(x11_buffer[mIndex],screen_buffer->fb_data,params->fb_size);
+
+		pthread_mutex_lock(&x11_buffer_mutex);
+		x11_buffer_used[mIndex] = BUFFER_FREE;
+		x11_buffer_index = mIndex;
+		pthread_mutex_unlock(&x11_buffer_mutex);	
+	}
+	pthread_mutex_unlock(&x11_thread_mutex);
+	printf("Thread Ended for Dev %d \n", dev_id);
+}
+
+void usb_send_thread(int dev_id){
+	int mIndex;
+	ScreenGrabParams* params = android_device_get_device_id(dev_id)->extra_data[0];	
+	while(1){
+		pthread_mutex_lock(&x11_status_mutex);
+		if(x11_thread_kill) {
+			printf("x11 read kill flag\n");
+			pthread_mutex_unlock(&x11_status_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&x11_status_mutex);
+		
+		pthread_mutex_lock(&x11_buffer_mutex);
+		if(x11_buffer_new > 0){
+			printf("Skipped frames %d \n", (x11_buffer_new - 1) );
+			x11_buffer_new = 0;
+			mIndex = x11_buffer_index;
+			x11_buffer_used[mIndex] = BUFFER_USED;
+			pthread_mutex_unlock(&x11_buffer_mutex);
+			
+			sendBufferedScreenCap(x11_buffer[mIndex],dev_id,params);
+			
+			pthread_mutex_lock(&x11_buffer_mutex);
+			x11_buffer_used[mIndex] = BUFFER_FREE;
+		}
+		pthread_mutex_unlock(&x11_buffer_mutex);
+
 
 	}
+}
 
+
+void x11_thread_start(int dev_id){
+	pthread_mutex_lock(&x11_status_mutex);
+	if(x11_thread_status && !x11_thread_kill){
+		pthread_mutex_unlock(&x11_status_mutex);
+		return;
+	}
+	pthread_mutex_unlock(&x11_status_mutex);
+
+	pthread_mutex_lock(&x11_thread_mutex);
+	
+	pthread_mutex_lock(&x11_status_mutex);
+	x11_thread_status = 1;
+	x11_thread_kill = 0;
+	pthread_mutex_unlock(&x11_status_mutex);
+	pthread_create(&x11_thread_h, NULL, &x11_thread, dev_id);
+	pthread_create(&usb_send_thread_h,NULL,&usb_send_thread,dev_id);
+	pthread_mutex_unlock(&x11_thread_mutex);    	
+}
+
+void x11_thread_stop(){
+	pthread_mutex_lock(&x11_status_mutex);
+	x11_thread_kill = 1;
+	printf("x11 raised kill flag\n");
+	pthread_mutex_unlock(&x11_status_mutex);
 }
 
 int main(){
+	
+	x11_buffer[0] = NULL;
+	x11_buffer[1] = NULL;
+	x11_buffer[2] = NULL;
+	x11_buffer_used[0] = BUFFER_FREE;
+	x11_buffer_used[1] = BUFFER_FREE;
+	x11_buffer_used[2] = BUFFER_FREE;
+	x11_buffer_new = 0;
+
 	uinput_open();
 	android_device_create_context();
 	AndroidDeviceCallbacks callbacks;
@@ -311,10 +446,8 @@ int main(){
 	android_device_set_callbacks(dev_id,callbacks);
     x11_init();
     x11_print();
-    x11_thread_status = 1;
     android_thread_status = 1;
-    pthread_create(&x11_thread_h, NULL, &x11_thread, NULL);
-	pthread_create(&android_thread_h, NULL, &android_thread, NULL);
+    pthread_create(&android_thread_h, NULL, &android_thread, NULL);
 	char* command;
 	while(1){
 		

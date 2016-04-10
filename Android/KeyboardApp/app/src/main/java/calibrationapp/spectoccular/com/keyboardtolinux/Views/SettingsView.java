@@ -92,8 +92,12 @@ public class SettingsView implements SeekBar.OnSeekBarChangeListener, View.OnTou
     public void onClick(View v) {
         switch (v.getId()){
             case R.id.settings_button_scale_down:
+                mSettings.setDownScale(mSettings.getDownScale() - 1);
+                scaleValue.setText(mSettings.getDownScale()+"");
                 break;
             case R.id.settings_button_scale_up:
+                mSettings.setDownScale(mSettings.getDownScale() + 1);
+                scaleValue.setText(mSettings.getDownScale()+"");
                 break;
         }
     }

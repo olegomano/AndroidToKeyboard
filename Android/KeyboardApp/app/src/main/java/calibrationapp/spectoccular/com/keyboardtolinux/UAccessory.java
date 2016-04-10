@@ -26,11 +26,14 @@ import android.hardware.usb.UsbManager;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.ReadableByteChannel;
 
 /**
  * Created by Oleg Tolstov on 8:46 PM, 1/19/16. KeyboardToLinux
@@ -125,16 +128,19 @@ public class UAccessory extends BroadcastReceiver implements Runnable{
         isOpen = false;
         hasPermission = false;
         try {
+            if(inputStream!=null)
             inputStream.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
         try {
+            if(outputStream!=null)
             outputStream.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
         try {
+            if(pfd!=null)
             pfd.close();
         } catch (IOException e) {
             e.printStackTrace();
@@ -146,14 +152,14 @@ public class UAccessory extends BroadcastReceiver implements Runnable{
     @Override
     public synchronized void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
-        MainActivity.DEBUG_VIEW.printConsole("Got intent: " + intent);
+        //MainActivity.DEBUG_VIEW.printConsole("Got intent: " + intent);
         if(action.compareTo(USB_ACTION) == 0){
             accessory = (UsbAccessory) intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
             if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                 if(accessory != null){
                     hasPermission = true;
                     Log.d("UAccessory", "permission gained for accessory " + accessory);
-                    MainActivity.DEBUG_VIEW.printConsole("Gained Permissions " + accessory);
+                    //MainActivity.DEBUG_VIEW.printConsole("Gained Permissions " + accessory);
                     try {
                         startIO();
                     } catch (IOException e) {
@@ -208,7 +214,7 @@ public class UAccessory extends BroadcastReceiver implements Runnable{
 
     @Override
     public void run() {
-        while(!readThread.isInterrupted()){
+       while(!readThread.isInterrupted()){
             try {
                 inputStream.read(packetRead);
                 listener.onDataRead(packetRead);
@@ -226,10 +232,16 @@ public class UAccessory extends BroadcastReceiver implements Runnable{
         sendData(PACKET_CLOSE,null); //tells accessory that you are ending communications`
         isIO = false;
         if(pfd!=null) {
-            readThread.interrupt();
+            if(readThread!=null) {
+                readThread.interrupt();
+            }
             isOpen = false;
-            inputStream.close();
-            outputStream.close();
+            if(inputStream!=null) {
+                inputStream.close();
+            }
+            if(outputStream!=null) {
+                outputStream.close();
+            }
             pfd.close();
             inputStream = null;
             outputStream = null;
@@ -253,7 +265,7 @@ public class UAccessory extends BroadcastReceiver implements Runnable{
         outputStream.flush();
 
         try {
-            MainActivity.DEBUG_VIEW.printConsole("Waiting for Responce");
+         //   MainActivity.DEBUG_VIEW.printConsole("Waiting for Responce");
             inputStream.read(readBuffer);
         } catch (Exception e) {
             e.printStackTrace();
@@ -266,7 +278,7 @@ public class UAccessory extends BroadcastReceiver implements Runnable{
         }else{
             sameEndianess = false;
         }
-        MainActivity.DEBUG_VIEW.printConsole("Successfull handshake, Endianess is " + sameEndianess);
+       // MainActivity.DEBUG_VIEW.printConsole("Successfull handshake, Endianess is " + sameEndianess);
         return true;
     }
 

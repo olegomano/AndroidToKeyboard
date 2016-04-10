@@ -78,11 +78,15 @@ public class SSmode extends USBMode {
                     fbHeight = Integer.reverseBytes(buffer.get(2));
                     packetCount = Integer.reverseBytes(buffer.get(3));
                 }
-                MainActivity.DEBUG_VIEW.printConsole("FrameBuffer W: " + fbWidth + ", H: " +fbHeight);
                 screenBitmapBytes = new byte[fbWidth*fbHeight*4];
                 screenBitmapColors = new int[fbWidth*fbHeight];
                 screenBitmap = Bitmap.createBitmap(fbWidth,fbHeight, Bitmap.Config.ARGB_8888);
                 totalPackets = packetCount;
+                MainActivity.DEBUG_VIEW.printConsole("FrameBuffer W: " + fbWidth + ", H: " +fbHeight + "P Count: " + totalPackets);
+
+                mPacket[1] = flag();
+                bb.asIntBuffer().put(1,REQUEST_SS_START);
+                device.sendData(mPacket);
                 break;
             case SS_DATA:
                 int packetNumber;
@@ -130,12 +134,16 @@ public class SSmode extends USBMode {
         bb.asIntBuffer().put(1,REQUEST_FB_DIMS);
         bb.asIntBuffer().put(2,userScreenW);
         bb.asIntBuffer().put(3, userScreenH);
+        bb.asIntBuffer().put(4,settings.getDownScale());
         device.sendData(mPacket);
         //device.sendCntrlMsg(mPacket);
 
     }
 
     public void onDeselected(){
+        mPacket[1] = flag();
+        bb.asIntBuffer().put(1,REQUEST_SS_END);
+        device.sendData(mPacket);
         /*
         isCurrent = false;
         bb.asIntBuffer().put(CNTRL_CNTRL_STP_SS);
